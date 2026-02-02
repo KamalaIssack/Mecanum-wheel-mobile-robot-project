@@ -14,9 +14,9 @@ obj/
 *.swp
 *.swo
 *~
-.project
-.cproject
-.settings/
+#.project
+#.cproject
+#.settings/
 
 # Arduino
 *.elf
@@ -104,3 +104,17 @@ docs/_build/
 *.key
 secrets.yaml
 credentials.json
+
+# STM32CubeIDE outputs
+**/Debug/
+**/Release/
+**/*.elf
+**/*.hex
+**/*.bin
+**/*.map
+**/*.lst
+**/*.su
+**/*.cyclo
+**/*.d
+**/*.o
+
