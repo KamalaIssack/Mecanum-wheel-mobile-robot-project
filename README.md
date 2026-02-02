@@ -30,7 +30,7 @@ This project implements a mecanum wheel mobile robot capable of:
 │   └── datasheets/         # Component datasheets
 ├── firmware/               # Microcontroller firmware
 │   ├── arduino/            # Arduino-based firmware
-│   ├── esp32/              # ESP32-based firmware
+│   ├── STM32/              # STM32-based firmware
 │   └── drivers/            # Motor and sensor drivers
 ├── config/                 # Configuration files
 ├── tests/                  # Test files
