@@ -1,4 +1,83 @@
+
 # macOS
+# Build outputs
+build/
+bin/
+obj/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+#.project
+#.cproject
+#.settings/
+
+# Arduino
+*.elf
+*.hex
+*.bin
+*.eep
+libraries/
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+venv/
+env/
+.env
+
+# ROS (if applicable)
+devel/
+logs/
+install/
+.catkin_workspace
+.catkin_tools/
+
+# CAD software temporary files
+*.bak
+*.tmp
+~$*
+*.autosave
+*.dwl
+*.dwl2
+
+# Fusion 360
+*.f3d.bak*
+
+# SolidWorks
+*.swp
+*.sldprt.bak
+*.sldasm.bak
+
+# KiCad
+*-backups/
+*.kicad_prl
+fp-info-cache
+*.xml
+
+# Eagle
+*.b#*
+*.s#*
+*.l#*
+
+# OS generated files
 .DS_Store
 
 # STM32CubeIDE / Eclipse metadata (optional: ignore these)
@@ -29,3 +108,32 @@
 **/sources.mk
 **/makefile
 **/subdir.mk
+
+
+# Compiled documentation
+docs/_build/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Credentials and secrets
+*.pem
+*.key
+secrets.yaml
+credentials.json
+
+# STM32CubeIDE outputs
+**/Debug/
+**/Release/
+**/*.elf
+**/*.hex
+**/*.bin
+**/*.map
+**/*.lst
+**/*.su
+**/*.cyclo
+**/*.d
+**/*.o
+
