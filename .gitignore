@@ -1,106 +1,31 @@
-# Build outputs
-build/
-bin/
-obj/
-*.o
-*.a
-*.so
-*.dylib
-*.exe
-
-# IDE and editor files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.project
-.cproject
-.settings/
-
-# Arduino
-*.elf
-*.hex
-*.bin
-*.eep
-libraries/
-
-# PlatformIO
-.pio/
-.pioenvs/
-.piolibdeps/
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-.eggs/
-dist/
-venv/
-env/
-.env
-
-# ROS (if applicable)
-devel/
-logs/
-install/
-.catkin_workspace
-.catkin_tools/
-
-# CAD software temporary files
-*.bak
-*.tmp
-~$*
-*.autosave
-*.dwl
-*.dwl2
-
-# Fusion 360
-*.f3d.bak*
-
-# SolidWorks
-*.swp
-*.sldprt.bak
-*.sldasm.bak
-
-# KiCad
-*-backups/
-*.kicad_prl
-fp-info-cache
-*.xml
-
-# Eagle
-*.b#*
-*.s#*
-*.l#*
-
-# OS generated files
+# macOS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
 
-# Log files
-*.log
-logs/
+# STM32CubeIDE / Eclipse metadata (optional: ignore these)
+**/.project
+**/.cproject
+**/.settings/
+**/*.launch
+**/.mxproject
+**/.osx.project
 
-# Dependency directories
-node_modules/
+# Build output folders
+**/Debug/
+**/Release/
 
-# Compiled documentation
-docs/_build/
-
-# Temporary files
-*.tmp
-*.temp
-*.bak
-
-# Credentials and secrets
-*.pem
-*.key
-secrets.yaml
-credentials.json
+# Build artifacts
+**/*.o
+**/*.a
+**/*.d
+**/*.su
+**/*.cyclo
+**/*.lst
+**/*.map
+**/*.elf
+**/*.hex
+**/*.bin
+**/objects.list
+**/objects.mk
+**/sources.mk
+**/makefile
+**/subdir.mk
