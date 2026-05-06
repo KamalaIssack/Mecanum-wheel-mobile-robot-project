@@ -137,3 +137,6 @@ credentials.json
 **/*.d
 **/*.o
 
+# STM32 HAL/CMSIS Drivers (regenerate from .ioc using STM32CubeMX)
+**/Drivers/
+
