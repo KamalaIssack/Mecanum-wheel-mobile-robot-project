@@ -17,7 +17,7 @@ The firmware is being developed incrementally through a structured phase-based a
 |-------|-------------|--------|
 | 1 | LED Blink - GPIO digital output | Completed |
 | 2 | PWM LED Fade - Timer/PWM control | Completed |
-| 3 | Single Motor Test - BTS7960 driver control | Planned |
+| 3 | Mecanum Drive - 4-motor PWM control with kinematics | Completed |
 | 4 | Encoder Test - Motor encoder feedback | Planned |
 | 5 | PID Motor Control - Closed-loop velocity control | Planned |
 | 6 | UART Communication - STM32 to Raspberry Pi | Planned |
@@ -38,6 +38,8 @@ The firmware is being developed incrementally through a structured phase-based a
 │   ├── api/                # API documentation
 │   ├── user-guide/         # User guides and development log
 │   └── images/             # Documentation images
+│       ├── stm32/          # STM32 phase photos
+│       └── hardware/       # Hardware setup photos (buck converter, wiring)
 ├── hardware/               # Hardware documentation
 │   ├── cad/                # CAD files and 3D models
 │   ├── schematics/         # Electrical schematics
@@ -47,7 +49,8 @@ The firmware is being developed incrementally through a structured phase-based a
 │   ├── stm32/              # STM32 firmware (active development)
 │   │   └── nucleo_f446re/  # NUCLEO-F446RE board projects
 │   │       ├── led_blink/          # Phase 1: GPIO output
-│   │       └── pwm_led_fade/       # Phase 2: PWM control
+│   │       ├── pwm_led_fade/       # Phase 2: PWM control
+│   │       └── mecanum_drive/      # Phase 3: 4-motor mecanum drive
 │   ├── arduino/            # Arduino-based firmware
 │   ├── esp32/              # ESP32-based firmware
 │   └── drivers/            # Motor and sensor drivers
@@ -80,7 +83,7 @@ The firmware is being developed incrementally through a structured phase-based a
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/Mecanum-wheel-mobile-robot-project.git
+   git clone https://github.com/KamalaIssack/Mecanum-wheel-mobile-robot-project.git
    ```
 
 2. Open STM32CubeIDE and import the desired firmware project from `firmware/stm32/nucleo_f446re/`
