@@ -17,7 +17,7 @@ The firmware is being developed incrementally through a structured phase-based a
 |-------|-------------|--------|
 | 1 | LED Blink - GPIO digital output | Completed |
 | 2 | PWM LED Fade - Timer/PWM control | Completed |
-| 3 | Mecanum Drive - 4-motor PWM control with kinematics | Completed |
+| 3 | Single Motor Test - BTS7960 driver + one motor | Completed |
 | 4 | Encoder Test - Motor encoder feedback | Planned |
 | 5 | PID Motor Control - Closed-loop velocity control | Planned |
 | 6 | UART Communication - STM32 to Raspberry Pi | Planned |
@@ -37,6 +37,8 @@ The firmware is being developed incrementally through a structured phase-based a
 ├── docs/                   # Documentation
 │   ├── api/                # API documentation
 │   ├── user-guide/         # User guides and development log
+│   ├── videos/             # Demo videos
+│   │   └── stm32/          # STM32 phase test recordings
 │   └── images/             # Documentation images
 │       ├── stm32/          # STM32 phase photos
 │       └── hardware/       # Hardware setup photos (buck converter, wiring)
@@ -50,7 +52,12 @@ The firmware is being developed incrementally through a structured phase-based a
 │   │   └── nucleo_f446re/  # NUCLEO-F446RE board projects
 │   │       ├── led_blink/          # Phase 1: GPIO output
 │   │       ├── pwm_led_fade/       # Phase 2: PWM control
-│   │       └── mecanum_drive/      # Phase 3: 4-motor mecanum drive
+│   │       ├── single_motor_test/  # Phase 3: One BTS7960 + one motor
+│   │       ├── encoder_test/       # Phase 4: Motor encoder feedback
+│   │       ├── pid_motor_control/  # Phase 5: PID velocity control
+│   │       ├── uart_comm_test/     # Phase 6: STM32 ↔ Raspberry Pi
+│   │       ├── imu_test/           # Phase 7: MPU-9250 I2C
+│   │       └── mecanum_firmware/   # Final: Complete robot firmware
 │   ├── arduino/            # Arduino-based firmware
 │   ├── esp32/              # ESP32-based firmware
 │   └── drivers/            # Motor and sensor drivers
