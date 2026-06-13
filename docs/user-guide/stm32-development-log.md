@@ -195,13 +195,138 @@ firmware/stm32/nucleo_f446re/
 
 ---
 
-## Upcoming: Phase 3 — Single Motor Test
+## Phase 3: Single Motor Test (BTS7960 + PWM Direction Control)
 
 **Project:** `single_motor_test`
-**Goal:** Configure 2 PWM channels for one BTS7960 motor driver and spin a TSINY-8370 motor with variable speed and direction control.
+**Objective:** Drive one TSINY-8370 DC motor through a BTS7960 motor driver using two PWM channels — one for forward, one for reverse — with variable speed control
 
-Key tasks:
-- Configure 2 TIM channels for RPWM/LPWM (forward/reverse)
-- Wire BTS7960 motor driver to STM32 and motor
-- Implement direction and speed control functions
-- Validate with actual hardware
+### Concept
+
+The BTS7960 is a half-bridge motor driver with two PWM inputs:
+
+- **RPWM** — controls forward rotation (right/positive direction)
+- **LPWM** — controls reverse rotation (left/negative direction)
+
+To spin the motor, you activate one signal with a duty cycle and hold the other at 0. Speed maps linearly to duty cycle (0% = stopped, 100% = full speed). Both signals at 0 coasts the motor; both signals active simultaneously must be avoided (shoot-through).
+
+This is the direct hardware bridge between the PWM theory from Phase 2 and the 4-motor mecanum drive system.
+
+### BTS7960 Wiring
+
+| BTS7960 Pin | STM32 Pin | Signal |
+|-------------|-----------|--------|
+| RPWM | PA6 (TIM3_CH1) | Forward PWM |
+| LPWM | PA7 (TIM3_CH2) | Reverse PWM |
+| R_EN | 3.3V (tied high) | Right bridge enable |
+| L_EN | 3.3V (tied high) | Left bridge enable |
+| VCC | 3.3V | Logic supply |
+| GND | GND | Common ground |
+| B+ | 12V supply | Motor power |
+| B- | GND | Motor power return |
+| M+ | Motor terminal A | — |
+| M- | Motor terminal B | — |
+
+> R_EN and L_EN are tied permanently high so the driver is always enabled. Direction and speed are controlled entirely through RPWM/LPWM duty cycles.
+
+### CubeMX Configuration
+
+- Board Selector: NUCLEO-F446RE
+- **TIM3 Channel 1** → PWM Generation CH1 (PA6)
+- **TIM3 Channel 2** → PWM Generation CH2 (PA7)
+- Parameter Settings (same PWM math as Phase 2, same 1kHz target):
+  - Prescaler (PSC): **83**
+  - Counter Period (ARR): **999**
+  - Pulse CH1: **0** (RPWM starts off)
+  - Pulse CH2: **0** (LPWM starts off)
+  - PWM Mode: PWM mode 1
+
+### Code
+
+Start both PWM channels before the loop (USER CODE BEGIN 2):
+
+```c
+/* USER CODE BEGIN 2 */
+HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);  // RPWM
+HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);  // LPWM
+/* USER CODE END 2 */
+```
+
+Direction and speed control functions (USER CODE BEGIN 0):
+
+```c
+/* USER CODE BEGIN 0 */
+void motor_forward(uint16_t speed)
+{
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);      // LPWM off
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, speed);  // RPWM active
+}
+
+void motor_reverse(uint16_t speed)
+{
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);      // RPWM off
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, speed);  // LPWM active
+}
+
+void motor_stop(void)
+{
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
+}
+/* USER CODE END 0 */
+```
+
+Test sequence inside the `while(1)` loop:
+
+```c
+while (1)
+{
+    motor_forward(500);   // 50% speed forward
+    HAL_Delay(2000);
+
+    motor_stop();
+    HAL_Delay(500);
+
+    motor_reverse(500);   // 50% speed reverse
+    HAL_Delay(2000);
+
+    motor_stop();
+    HAL_Delay(500);
+
+    motor_forward(999);   // full speed forward
+    HAL_Delay(2000);
+
+    motor_stop();
+    HAL_Delay(1000);
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+}
+```
+
+### Key Functions
+
+| Function | Purpose |
+|----------|---------|
+| `HAL_TIM_PWM_Start(&htim, channel)` | Starts PWM output on a timer channel |
+| `__HAL_TIM_SET_COMPARE(&htim, channel, value)` | Sets duty cycle (0–999) |
+| `motor_forward(speed)` | Drives RPWM, zeroes LPWM |
+| `motor_reverse(speed)` | Drives LPWM, zeroes RPWM |
+| `motor_stop()` | Zeroes both channels — coasts motor |
+
+### Result
+
+- Build: 0 errors, 0 warnings ✓
+- Motor spins forward and reverse on command ✓
+- Speed control via duty cycle confirmed ✓
+- Direction switching with stop gap works cleanly ✓
+
+![Phase 3 — Single Motor Test](../videos/stm32/phase3-motor-test.mp4)
+
+### Mapping to Full Mecanum Drive
+
+| Single Motor Test | Mecanum Firmware |
+|-------------------|-----------------|
+| TIM3 CH1/CH2 (1 motor) | 4 timers × 2 channels (4 motors) |
+| `motor_forward/reverse` | Per-wheel direction functions |
+| Fixed test sequence | Velocity commands from Raspberry Pi |
+| 50% / 100% test speeds | PID-controlled target velocities |
