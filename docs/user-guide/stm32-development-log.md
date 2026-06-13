@@ -320,7 +320,7 @@ while (1)
 - Speed control via duty cycle confirmed ✓
 - Direction switching with stop gap works cleanly ✓
 
-<video src="https://github.com/KamalaIssack/Mecanum-wheel-mobile-robot-project/raw/main/docs/videos/stm32/phase3-motor-test.mp4" controls width="100%"></video>
+[▶ Watch Phase 3 Motor Test — single motor forward/reverse with BTS7960](../videos/stm32/phase3-motor-test.mp4)
 
 ### Mapping to Full Mecanum Drive
 
