@@ -69,7 +69,9 @@ The build follows a two-deck chassis: Deck 1 carries the power distribution laye
 
 **Result:** Deck 1 power wiring complete and tested. All voltages verified. Ready for Deck 2 assembly.
 
-![Deck 1 – Power wiring complete (isometric view): yellow aluminum platform showing the central bus bars at top-centre, 4× BTS7960 drivers at the corners, and 2× XL4016E1 bucks with LED displays in the middle. Two mecanum wheels are visible on the left.](docs/images/hardware/deck1-power-wiring-iso.png)
+| Isometric view | Top-down view |
+|:-:|:-:|
+| ![Deck 1 isometric: yellow platform with 2 mecanum wheels visible on the left, 4× BTS7960 drivers at the corners, 2× XL4016E1 bucks with LED displays in the centre, and positive bus bar above them. Red wires run from the bus bar to each driver and buck.](docs/images/hardware/deck1-power-wiring-iso.png) | ![Deck 1 top-down: all 4 mecanum wheels visible at the corners. Positive bus bar at top-centre, negative bus bar below it, 2× XL4016E1 bucks side-by-side in the middle, and 4× BTS7960 (IBT-2) drivers — 2 at the top and 2 at the bottom — each fed directly from the bus bars in a star topology.](docs/images/hardware/deck1-power-wiring-top.png) |
 
 ---
 
