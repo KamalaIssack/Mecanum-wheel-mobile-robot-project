@@ -164,12 +164,25 @@ Wheel naming: **FL** (front-left), **FR** (front-right), **RL** (rear-left), **R
 
 ```
 .
-├── src/                    # Source code
-│   ├── control/            # Motion control algorithms
-│   ├── kinematics/         # Mecanum wheel kinematics
-│   ├── sensors/            # Sensor integration
-│   ├── communication/      # Communication protocols
-│   └── utils/              # Utility functions
+├── firmware/               # Microcontroller firmware
+│   ├── stm32/
+│   │   └── nucleo_f446re/
+│   │       ├── led_blink/        # Phase 1
+│   │       ├── pwm_led_fade/     # Phase 2
+│   │       └── mecanum_drive/    # Phase 3+ – single motor test through
+│   │                             # the complete 4-motor mecanum firmware
+│   ├── esp32/
+│   ├── arduino/
+│   └── drivers/
+├── ros2_ws/                # ROS 2 Jazzy colcon workspace (runs on the Raspberry Pi 5)
+│   └── src/
+│       ├── mecanum_description/  # Robot URDF (xacro) + display.launch.py
+│       └── mecanum_interfaces/   # Custom msg/srv/action definitions
+├── hardware/               # Hardware documentation
+│   ├── cad/                # CAD files and 3D models
+│   ├── schematics/         # Electrical schematics
+│   ├── bom/                # Bill of materials
+│   └── datasheets/         # Component datasheets
 ├── docs/                   # Documentation
 │   ├── user-guide/         # User guides and development log
 │   ├── videos/             # Demo videos
@@ -177,26 +190,23 @@ Wheel naming: **FL** (front-left), **FR** (front-right), **RL** (rear-left), **R
 │   └── images/             # Documentation images
 │       ├── stm32/          # STM32 phase photos
 │       └── hardware/       # Hardware build photos
-├── hardware/               # Hardware documentation
-│   ├── cad/                # CAD files and 3D models
-│   ├── schematics/         # Electrical schematics
-│   ├── bom/                # Bill of materials
-│   └── datasheets/         # Component datasheets
-├── firmware/               # Microcontroller firmware
-│   └── stm32/
-│       └── nucleo_f446re/
-│           ├── led_blink/          # Phase 1
-│           ├── pwm_led_fade/       # Phase 2
-│           ├── single_motor_test/  # Phase 3
-│           ├── encoder_test/       # Phase 4
-│           ├── pid_motor_control/  # Phase 5
-│           ├── uart_comm_test/     # Phase 6
-│           ├── imu_test/           # Phase 7
-│           └── mecanum_firmware/   # Phase 8 – complete system
 ├── config/
 ├── tests/
 └── scripts/
 ```
+
+---
+
+## Architecture: Two Parts
+
+The project splits into two independently-running parts that talk to each other over UART:
+
+- **`firmware/`** — runs on the STM32 NUCLEO-F446RE. Handles low-level motor control: PWM generation, encoder feedback, and (once Phase 6 lands) the UART link to the Raspberry Pi.
+- **`ros2_ws/`** — a ROS 2 Jazzy colcon workspace that runs on the Raspberry Pi 5. Currently holds:
+  - `mecanum_description` — the robot's URDF, built from measurements taken off the physical robot. `base_link` sits at ground level, at the centroid of the 200×200mm wheel-contact square. `display.launch.py` brings up `robot_state_publisher` and `joint_state_publisher` for visualizing the model.
+  - `mecanum_interfaces` — custom interfaces (`WheelSpeeds.msg`, `ResetOdometry.srv`, `MoveForSeconds.action`) shared between nodes.
+
+  `ros2_ws/` has its own `.gitignore` for `build/`, `install/`, and `log/`.
 
 ---
 
@@ -269,7 +279,7 @@ Each motor is controlled via a BTS7960 driver using two PWM channels:
 
 - The STM32F446RE currently uses ~1.7% Flash and ~1.3% RAM, leaving plenty of room for the full firmware
 - The system will support up to 8 PWM channels (2 per motor × 4 motors)
-- ROS 2 workspace: see the companion repository `mecanum_actions_ws`
+- ROS 2 workspace lives in this repo at `ros2_ws/`. The companion repository `mecanum_actions_ws` is now a ROS 2 fundamentals learning archive and no longer holds production packages.
 
 For detailed firmware development notes, see [`docs/user-guide/stm32-development-log.md`](docs/user-guide/stm32-development-log.md).
 
