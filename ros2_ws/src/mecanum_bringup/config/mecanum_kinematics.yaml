@@ -1,0 +1,6 @@
+mecanum_kinematics:
+  ros__parameters:
+    wheel_radius: 0.0483
+    lx: 0.1
+    ly: 0.1
+    max_wheel_speed: 41.9
