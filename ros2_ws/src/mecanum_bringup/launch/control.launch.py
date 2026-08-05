@@ -5,7 +5,7 @@ from launch.substitutions import PathJoinSubstitution
 
 
 def generate_launch_description():
-    kinematics_params = PathJoinSubstitution([
+    control_params = PathJoinSubstitution([
         FindPackageShare('mecanum_bringup'),
         'config',
         'mecanum_kinematics.yaml',
@@ -16,9 +16,18 @@ def generate_launch_description():
         executable='mecanum_kinematics',
         name='mecanum_kinematics',
         output='screen',
-        parameters=[kinematics_params],
+        parameters=[control_params],
+    )
+
+    odometry_node = Node(
+        package='mecanum_control',
+        executable='mecanum_odometry',
+        name='mecanum_odometry',
+        output='screen',
+        parameters=[control_params],
     )
 
     return LaunchDescription([
         kinematics_node,
+        odometry_node,
     ])

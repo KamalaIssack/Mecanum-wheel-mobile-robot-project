@@ -4,3 +4,12 @@ mecanum_kinematics:
     lx: 0.1
     ly: 0.1
     max_wheel_speed: 41.9
+
+mecanum_odometry:
+  ros__parameters:
+    wheel_radius: 0.0483
+    lx: 0.1
+    ly: 0.1
+    publish_rate: 50.0
+    odom_frame: "odom"
+    base_frame: "base_link"
