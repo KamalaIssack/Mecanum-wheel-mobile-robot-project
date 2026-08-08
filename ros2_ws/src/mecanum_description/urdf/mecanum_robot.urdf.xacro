@@ -1,6 +1,35 @@
 <?xml version="1.0"?>
 <robot name="mecanum_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+<!-- ==============================================================
+       INERTIA MACROS
+       Compute the inertia tensor from mass + geometry so the numbers
+       always match the shapes. Box and cylinder formulas.
+       ============================================================== -->
+  <xacro:macro name="box_inertial" params="mass x y z *origin">
+    <inertial>
+      <xacro:insert_block name="origin"/>
+      <mass value="${mass}"/>
+      <inertia
+        ixx="${(1/12) * mass * (y*y + z*z)}"
+        iyy="${(1/12) * mass * (x*x + z*z)}"
+        izz="${(1/12) * mass * (x*x + y*y)}"
+        ixy="0" ixz="0" iyz="0"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:macro name="cylinder_inertial" params="mass radius length *origin">
+    <inertial>
+      <xacro:insert_block name="origin"/>
+      <mass value="${mass}"/>
+      <inertia
+        ixx="${(1/12) * mass * (3*radius*radius + length*length)}"
+        iyy="${(1/12) * mass * (3*radius*radius + length*length)}"
+        izz="${(1/2) * mass * radius*radius}"
+        ixy="0" ixz="0" iyz="0"/>
+    </inertial>
+  </xacro:macro>
+
   <!-- ==============================================================
        FRAME CONVENTION
        base_link : point on the floor below the centroid of the
@@ -54,21 +83,35 @@
   <material name="lidar_teal"><color rgba="0.36 0.88 0.85 1.0"/></material>
   <material name="imu_blue"><color rgba="0.15 0.35 0.75 1.0"/></material>
 
-  <link name="base_link">
+<link name="base_link">
     <visual>
       <origin xyz="0 0 ${frame_centre_z}" rpy="0 0 0"/>
       <geometry><box size="${frame_length} ${frame_width} ${frame_thickness}"/></geometry>
       <material name="frame_grey"/>
     </visual>
+    <collision>
+      <origin xyz="0 0 ${frame_centre_z}" rpy="0 0 0"/>
+      <geometry><box size="${frame_length} ${frame_width} ${frame_thickness}"/></geometry>
+    </collision>
+    <xacro:box_inertial mass="3.0" x="${frame_length}" y="${frame_width}" z="0.13">
+      <origin xyz="0 0 0.135" rpy="0 0 0"/>
+    </xacro:box_inertial>
   </link>
 
-  <xacro:macro name="mecanum_wheel" params="prefix x_sign y_sign">
+<xacro:macro name="mecanum_wheel" params="prefix x_sign y_sign">
     <link name="${prefix}_wheel_link">
       <visual>
         <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
         <geometry><cylinder radius="${wheel_radius_geom}" length="${wheel_width}"/></geometry>
         <material name="wheel_black"/>
       </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry><cylinder radius="${wheel_radius_geom}" length="${wheel_width}"/></geometry>
+      </collision>
+      <xacro:cylinder_inertial mass="0.08" radius="${wheel_radius_geom}" length="${wheel_width}">
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+      </xacro:cylinder_inertial>
     </link>
     <joint name="${prefix}_wheel_joint" type="continuous">
       <parent link="base_link"/>
@@ -83,6 +126,7 @@
   <xacro:mecanum_wheel prefix="rear_left"   x_sign="-1" y_sign="1"/>
   <xacro:mecanum_wheel prefix="rear_right"  x_sign="-1" y_sign="-1"/>
 
+
   <link name="lidar_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -94,6 +138,13 @@
       <geometry><box size="${lidar_base_length} ${lidar_base_width} ${lidar_base_height}"/></geometry>
       <material name="lidar_black"/>
     </visual>
+    <collision>
+      <origin xyz="0 0 ${lidar_base_offset_z}" rpy="0 0 0"/>
+      <geometry><box size="${lidar_base_length} ${lidar_base_width} ${lidar_base_height}"/></geometry>
+    </collision>
+    <xacro:box_inertial mass="0.01" x="${lidar_base_length}" y="${lidar_base_width}" z="${lidar_base_height}">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </xacro:box_inertial>
   </link>
   <joint name="lidar_joint" type="fixed">
     <parent link="base_link"/>
@@ -107,6 +158,13 @@
       <geometry><box size="${imu_board_x} ${imu_board_y} ${imu_board_z}"/></geometry>
       <material name="imu_blue"/>
     </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${imu_board_x} ${imu_board_y} ${imu_board_z}"/></geometry>
+    </collision>
+    <xacro:box_inertial mass="0.01" x="${imu_board_x}" y="${imu_board_y}" z="${imu_board_z}">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </xacro:box_inertial>
   </link>
   <joint name="imu_joint" type="fixed">
     <parent link="base_link"/>
