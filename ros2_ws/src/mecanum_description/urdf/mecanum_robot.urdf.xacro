@@ -1,6 +1,11 @@
 <?xml version="1.0"?>
 <robot name="mecanum_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+<!-- Simulation-only content (Gazebo drive plugin, sensors later).
+       Kept in a separate file; this is a stand-in for the real STM32
+       motor control and only matters inside Gazebo. -->
+  <xacro:include filename="$(find mecanum_description)/urdf/mecanum_robot.gazebo.xacro"/>
+
 <!-- ==============================================================
        INERTIA MACROS
        Compute the inertia tensor from mass + geometry so the numbers
