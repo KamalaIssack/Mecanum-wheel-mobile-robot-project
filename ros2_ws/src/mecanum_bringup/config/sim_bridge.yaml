@@ -1,0 +1,28 @@
+# Topic map for ros_gz_bridge. Nothing crosses the Gazebo Transport <-> ROS 2
+# boundary unless it is listed here.
+#
+# Each topic has a single producer, so each bridge is one-way. Bidirectional
+# bridging would add conversion work for messages nobody publishes, and on /tf
+# it risks a second publisher fighting over the odom->base_link edge.
+
+- ros_topic_name: "cmd_vel"
+  gz_topic_name: "/cmd_vel"
+  ros_type_name: "geometry_msgs/msg/Twist"
+  gz_type_name: "gz.msgs.Twist"
+  direction: ROS_TO_GZ
+
+- ros_topic_name: "odom"
+  gz_topic_name: "/odom"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS
+
+# Carries the plugin's odom->base_link edge into the ROS TF tree.
+# robot_state_publisher supplies the internal base_link->child edges on this
+# same topic; the two halves compose into one tree.
+- ros_topic_name: "tf"
+  gz_topic_name: "/tf"
+  ros_type_name: "tf2_msgs/msg/TFMessage"
+  gz_type_name: "gz.msgs.Pose_V"
+  direction: GZ_TO_ROS
+
