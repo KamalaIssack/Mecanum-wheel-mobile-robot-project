@@ -26,3 +26,11 @@
   gz_type_name: "gz.msgs.Pose_V"
   direction: GZ_TO_ROS
 
+# Gazebo publishes joint state as gz.msgs.Model, not gz.msgs.JointState:
+# the Model message carries the repeated per-joint list. Guessing the
+# intuitive type name here fails to bridge silently.
+- ros_topic_name: "joint_states"
+  gz_topic_name: "/joint_states"
+  ros_type_name: "sensor_msgs/msg/JointState"
+  gz_type_name: "gz.msgs.Model"
+  direction: GZ_TO_ROS

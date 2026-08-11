@@ -30,6 +30,16 @@
 
       <odom_publish_frequency>50</odom_publish_frequency>
     </plugin>
+    <!-- Publishes all joint positions and velocities. Feeds
+         robot_state_publisher (which otherwise receives nothing and leaves the
+         wheels frozen) and exposes per-wheel velocities, which body-level
+         odometry cannot reveal: the plugin's forward and inverse kinematics
+         share one convention, so a sign flip cancels in the round trip.
+         On hardware this data comes from the Nucleo encoders instead. -->
+    <plugin filename="gz-sim-joint-state-publisher-system"
+            name="gz::sim::systems::JointStatePublisher">
+      <topic>joint_states</topic>
+    </plugin>    
   </gazebo>
 
 </robot> 
