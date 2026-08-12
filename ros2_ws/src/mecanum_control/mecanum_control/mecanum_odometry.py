@@ -20,6 +20,11 @@ class MecanumOdometry(Node):
         self.declare_parameter('publish_rate', 50.0)
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_link')
+        # Output topic and TF toggle default to real-robot behavior: this node
+        # owns /odom and the odom->base_link transform. Sim comparison overrides
+        # both so it runs beside the plugin's bridged /odom and TF.
+        self.declare_parameter('odom_topic', 'odom')
+        self.declare_parameter('publish_tf', True)
 
         self.r = self.get_parameter('wheel_radius').value
         self.lx = self.get_parameter('lx').value
@@ -27,6 +32,8 @@ class MecanumOdometry(Node):
         self.publish_rate = self.get_parameter('publish_rate').value
         self.odom_frame = self.get_parameter('odom_frame').value
         self.base_frame = self.get_parameter('base_frame').value
+        self.odom_topic = self.get_parameter('odom_topic').value
+        self.publish_tf_enabled = self.get_parameter('publish_tf').value
 
         self.l_sum = self.lx + self.ly
 
@@ -53,10 +60,12 @@ class MecanumOdometry(Node):
         )
 
         # Publisher: the odometry estimate.
-        self.odom_pub = self.create_publisher(Odometry, 'odom', 10)
+        self.odom_pub = self.create_publisher(Odometry, self.odom_topic, 10)
 
-        # TF broadcaster: odom -> base_link transform.
-        self.tf_broadcaster = TransformBroadcaster(self)
+        # TF broadcaster only when enabled; otherwise the plugin owns the edge.
+        self.tf_broadcaster = None
+        if self.publish_tf_enabled:
+            self.tf_broadcaster = TransformBroadcaster(self)
 
         # Timer: fires at publish_rate Hz and does all the integration.
         timer_period = 1.0 / self.publish_rate
@@ -102,7 +111,8 @@ class MecanumOdometry(Node):
         # Publish both outputs with a single shared timestamp.
         stamp = now.to_msg()
         self.publish_odometry(stamp, vx, vy, wz)
-        self.publish_tf(stamp)
+        if self.publish_tf_enabled:
+            self.publish_tf(stamp)
 
     def publish_odometry(self, stamp, vx, vy, wz):
         odom = Odometry()
