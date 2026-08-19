@@ -70,7 +70,7 @@ install/
 *-backups/
 *.kicad_prl
 fp-info-cache
-*.xml
+# *.xml   <-- REMOVED: was ignoring ROS package.xml manifests repo-wide. Scope any KiCad XML rule to its export dir if needed.
 
 # Eagle
 *.b#*
@@ -140,3 +140,6 @@ credentials.json
 # STM32 HAL/CMSIS Drivers (regenerate from .ioc using STM32CubeMX)
 **/Drivers/
 
+
+# ROS 2 package manifests must always be tracked (guard against broad rules above)
+!**/package.xml

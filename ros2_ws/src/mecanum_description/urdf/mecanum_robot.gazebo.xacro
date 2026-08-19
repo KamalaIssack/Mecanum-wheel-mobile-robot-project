@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ==============================================================
+       GAZEBO SIMULATION CONFIG
+       Sim-only content, included from the main URDF. Keeps physics-
+       sim machinery out of the pure robot description.
+       ============================================================== -->
+
+  <gazebo>
+    <plugin filename="gz-sim-mecanum-drive-system"
+            name="gz::sim::systems::MecanumDrive">
+      <!-- Wheel joints: front/rear, left/right -->
+      <front_left_joint>front_left_wheel_joint</front_left_joint>
+      <front_right_joint>front_right_wheel_joint</front_right_joint>
+      <back_left_joint>rear_left_wheel_joint</back_left_joint>
+      <back_right_joint>rear_right_wheel_joint</back_right_joint>
+
+      <!-- Geometry (your locked measurements) -->
+      <wheel_separation>0.2</wheel_separation>
+      <wheelbase>0.2</wheelbase>
+      <wheel_radius>0.0483</wheel_radius>
+
+      <!-- ROS interface topics (Gazebo transport side) -->
+      <topic>cmd_vel</topic>
+      <odom_topic>odom</odom_topic>
+      <tf_topic>tf</tf_topic>
+      <frame_id>odom</frame_id>
+      <child_frame_id>base_link</child_frame_id>
+
+      <odom_publish_frequency>50</odom_publish_frequency>
+    </plugin>
+    <!-- Publishes all joint positions and velocities. Feeds
+         robot_state_publisher (which otherwise receives nothing and leaves the
+         wheels frozen) and exposes per-wheel velocities, which body-level
+         odometry cannot reveal: the plugin's forward and inverse kinematics
+         share one convention, so a sign flip cancels in the round trip.
+         On hardware this data comes from the Nucleo encoders instead. -->
+    <plugin filename="gz-sim-joint-state-publisher-system"
+            name="gz::sim::systems::JointStatePublisher">
+      <topic>joint_states</topic>
+    </plugin>    
+  </gazebo>
+
+</robot> 
