@@ -49,6 +49,14 @@ TIM_HandleTypeDef htim8;
 
 /* USER CODE BEGIN PV */
 
+
+/* Live encoder counts - global so the debugger's Live Expressions
+ * panel can watch them. Raw CNT register values, updated each loop. */
+volatile uint32_t enc_fl = 0;   /* M1 front left  - TIM1 */
+volatile uint32_t enc_fr = 0;   /* M2 front right - TIM8 */
+volatile uint32_t enc_rl = 0;   /* M3 rear left   - TIM5 */
+volatile uint32_t enc_rr = 0;   /* M4 rear right  - TIM2 */
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -65,6 +73,9 @@ void motor_set(TIM_HandleTypeDef *htim, uint32_t rpwm_ch, uint32_t lpwm_ch,
                GPIO_TypeDef *en_port, uint16_t ren_pin, uint16_t len_pin,
                int16_t speed);
 void mecanum_drive(int16_t vx, int16_t vy, int16_t omega);
+
+
+void encoders_read_raw(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -122,27 +133,46 @@ int main(void)
   HAL_GPIO_WritePin(GPIOC, M1_REN_Pin|M1_LEN_Pin|M2_REN_Pin|M2_LEN_Pin
                           |M3_REN_Pin|M3_LEN_Pin|M4_REN_Pin|M4_LEN_Pin,
                           GPIO_PIN_SET);
+
+  /* Turn on hardware quadrature counting for all four encoders.
+   * Without these calls the CNT registers stay frozen at 0 no
+   * matter how the shafts turn. TIM_CHANNEL_ALL enables both the
+   * A and B input channels together. */
+  HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
+  HAL_TIM_Encoder_Start(&htim8, TIM_CHANNEL_ALL);
+  HAL_TIM_Encoder_Start(&htim5, TIM_CHANNEL_ALL);
+  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
+
+	  /* --- Encoder raw-count test: motors intentionally idle --- */
+	  encoders_read_raw();   /* refresh enc_fl/fr/rl/rr */
+	  HAL_Delay(20);         /* ~50 reads per second */
+
+
 	  /* Test: drive forward at 50% speed for 2 seconds */
+	  /* --- Old open-loop motor test, disabled during encoder test ---
 	  mecanum_drive(500, 0, 0);
 	  HAL_Delay(2000);
 
-	  /* Stop for 1 second */
+
 	  mecanum_drive(0, 0, 0);
 	  HAL_Delay(1000);
 
-	  /* Test: strafe right at 50% speed for 2 seconds */
+
 	  mecanum_drive(0, 500, 0);
 	  HAL_Delay(2000);
 
-	  /* Stop for 1 second */
+
 	  mecanum_drive(0, 0, 0);
 	  HAL_Delay(1000);
+	  */
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -621,6 +651,19 @@ void mecanum_drive(int16_t vx, int16_t vy, int16_t omega)
     motor_set(&htim4, TIM_CHANNEL_1, TIM_CHANNEL_2, GPIOC, M3_REN_Pin, M3_LEN_Pin, rl);
     motor_set(&htim4, TIM_CHANNEL_3, TIM_CHANNEL_4, GPIOC, M4_REN_Pin, M4_LEN_Pin, rr);
 }
+
+/* Reads the live count out of each encoder timer's CNT register.
+ * __HAL_TIM_GET_COUNTER just peeks the current value - it does not
+ * reset anything. Updates the four global enc_* variables so the
+ * debugger's Live Expressions panel can watch them change. */
+void encoders_read_raw(void)
+{
+    enc_fl = __HAL_TIM_GET_COUNTER(&htim1);
+    enc_fr = __HAL_TIM_GET_COUNTER(&htim8);
+    enc_rl = __HAL_TIM_GET_COUNTER(&htim5);
+    enc_rr = __HAL_TIM_GET_COUNTER(&htim2);
+}
+
 /* USER CODE END 4 */
 
 /**
