@@ -31,6 +31,12 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+/* 11 PPR x 4 (quadrature) x 21.3 gear ratio */
+#define COUNTS_PER_REV   937.2f
+/* Must match the TIM6 interrupt rate (50 Hz) */
+#define TICK_SECONDS     0.02f
+#define TWO_PI           6.283185f
+
 
 /* USER CODE END PD */
 
@@ -45,6 +51,7 @@ TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim5;
+TIM_HandleTypeDef htim6;
 TIM_HandleTypeDef htim8;
 
 /* USER CODE BEGIN PV */
@@ -57,6 +64,20 @@ volatile uint32_t enc_fr = 0;   /* M2 front right - TIM8 */
 volatile uint32_t enc_rl = 0;   /* M3 rear left   - TIM5 */
 volatile uint32_t enc_rr = 0;   /* M4 rear right  - TIM2 */
 
+
+
+/* Previous-tick counts, used to compute per-tick deltas */
+volatile uint32_t enc_fl_prev = 0;
+volatile uint32_t enc_fr_prev = 0;
+volatile uint32_t enc_rl_prev = 0;
+volatile uint32_t enc_rr_prev = 0;
+
+/* Wheel velocities in rad/s, updated each TIM6 tick */
+volatile float vel_fl = 0.0f;
+volatile float vel_fr = 0.0f;
+volatile float vel_rl = 0.0f;
+volatile float vel_rr = 0.0f;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -68,6 +89,7 @@ static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM5_Init(void);
 static void MX_TIM8_Init(void);
+static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
 void motor_set(TIM_HandleTypeDef *htim, uint32_t rpwm_ch, uint32_t lpwm_ch,
                GPIO_TypeDef *en_port, uint16_t ren_pin, uint16_t len_pin,
@@ -76,6 +98,10 @@ void mecanum_drive(int16_t vx, int16_t vy, int16_t omega);
 
 
 void encoders_read_raw(void);
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
+
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -118,6 +144,7 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM5_Init();
   MX_TIM8_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
   /* Start PWM on all 8 channels */
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
@@ -142,6 +169,11 @@ int main(void)
   HAL_TIM_Encoder_Start(&htim8, TIM_CHANNEL_ALL);
   HAL_TIM_Encoder_Start(&htim5, TIM_CHANNEL_ALL);
   HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
+
+
+
+  /* _IT enables the interrupt; plain Start would never fire the callback */
+  HAL_TIM_Base_Start_IT(&htim6);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -151,7 +183,7 @@ int main(void)
 
 
 	  /* --- Encoder raw-count test: motors intentionally idle --- */
-	  encoders_read_raw();   /* refresh enc_fl/fr/rl/rr */
+
 	  HAL_Delay(20);         /* ~50 reads per second */
 
 
@@ -505,6 +537,44 @@ static void MX_TIM5_Init(void)
 }
 
 /**
+  * @brief TIM6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM6_Init(void)
+{
+
+  /* USER CODE BEGIN TIM6_Init 0 */
+
+  /* USER CODE END TIM6_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM6_Init 1 */
+
+  /* USER CODE END TIM6_Init 1 */
+  htim6.Instance = TIM6;
+  htim6.Init.Prescaler = 8999;
+  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim6.Init.Period = 199;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM6_Init 2 */
+
+  /* USER CODE END TIM6_Init 2 */
+
+}
+
+/**
   * @brief TIM8 Initialization Function
   * @param None
   * @retval None
@@ -662,6 +732,33 @@ void encoders_read_raw(void)
     enc_fr = __HAL_TIM_GET_COUNTER(&htim8);
     enc_rl = __HAL_TIM_GET_COUNTER(&htim5);
     enc_rr = __HAL_TIM_GET_COUNTER(&htim2);
+}
+
+/* Fires every 20ms via TIM6. Guarded on TIM6 because this HAL callback
+ * is shared by all period-elapsed timers. Signed-width casts must match
+ * each timer's register width so counter wraparound resolves correctly:
+ * int16_t for TIM1/TIM8 (16-bit), int32_t for TIM5/TIM2 (32-bit). */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM6)
+    {
+        encoders_read_raw();
+
+        int16_t d_fl = (int16_t)(enc_fl - enc_fl_prev);
+        int16_t d_fr = (int16_t)(enc_fr - enc_fr_prev);
+        int32_t d_rl = (int32_t)(enc_rl - enc_rl_prev);
+        int32_t d_rr = (int32_t)(enc_rr - enc_rr_prev);
+
+        vel_fl = (float)d_fl * TWO_PI / COUNTS_PER_REV / TICK_SECONDS;
+        vel_fr = (float)d_fr * TWO_PI / COUNTS_PER_REV / TICK_SECONDS;
+        vel_rl = (float)d_rl * TWO_PI / COUNTS_PER_REV / TICK_SECONDS;
+        vel_rr = (float)d_rr * TWO_PI / COUNTS_PER_REV / TICK_SECONDS;
+
+        enc_fl_prev = enc_fl;
+        enc_fr_prev = enc_fr;
+        enc_rl_prev = enc_rl;
+        enc_rr_prev = enc_rr;
+    }
 }
 
 /* USER CODE END 4 */
