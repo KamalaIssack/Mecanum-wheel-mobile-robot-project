@@ -734,6 +734,15 @@ void encoders_read_raw(void)
     enc_rr = __HAL_TIM_GET_COUNTER(&htim2);
 }
 
+
+/* SIGN CONVENTION (open item): per-wheel velocity sign is not yet fixed.
+ * Mecanum wheels mount mirrored L/R, so correct signs are per-wheel and
+ * must be locked at chassis integration against the kinematics matrix:
+ * drive a known command, check odometry, then correct via A/B swap or by
+ * negating the delta below. Bench test (M1 unmounted) read negative for
+ * the hand-chosen 'forward'. */
+
+
 /* Fires every 20ms via TIM6. Guarded on TIM6 because this HAL callback
  * is shared by all period-elapsed timers. Signed-width casts must match
  * each timer's register width so counter wraparound resolves correctly:
