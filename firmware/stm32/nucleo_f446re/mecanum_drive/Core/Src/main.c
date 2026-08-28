@@ -38,6 +38,17 @@
 #define TWO_PI           6.283185f
 
 
+/* Per-wheel forward-drive sign, order {FL, FR, RL, RR}.
+ * Left wheels mount mirror-imaged to the right, so their encoders count the
+ * opposite way and read negative when rolled forward. Corrected here in
+ * firmware, never by swapping Hall wires, to keep the wiring uniform.
+ * Bench-measured on a forward roll: FL -, FR +, RL -, RR +. */
+#define DIR_FL (-1)
+#define DIR_FR (+1)
+#define DIR_RL (-1)
+#define DIR_RR (+1)
+
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -735,14 +746,6 @@ void encoders_read_raw(void)
 }
 
 
-/* SIGN CONVENTION (open item): per-wheel velocity sign is not yet fixed.
- * Mecanum wheels mount mirrored L/R, so correct signs are per-wheel and
- * must be locked at chassis integration against the kinematics matrix:
- * drive a known command, check odometry, then correct via A/B swap or by
- * negating the delta below. Bench test (M1 unmounted) read negative for
- * the hand-chosen 'forward'. */
-
-
 /* Fires every 20ms via TIM6. Guarded on TIM6 because this HAL callback
  * is shared by all period-elapsed timers. Signed-width casts must match
  * each timer's register width so counter wraparound resolves correctly:
@@ -753,10 +756,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     {
         encoders_read_raw();
 
-        int16_t d_fl = (int16_t)(enc_fl - enc_fl_prev);
-        int16_t d_fr = (int16_t)(enc_fr - enc_fr_prev);
-        int32_t d_rl = (int32_t)(enc_rl - enc_rl_prev);
-        int32_t d_rr = (int32_t)(enc_rr - enc_rr_prev);
+
+        /* Cast to the timer's signed width before applying DIR_* so a counter
+         * wrap unwraps correctly (int16 TIM1/TIM8, int32 TIM5/TIM2). */
+        int16_t d_fl = DIR_FL * (int16_t)(enc_fl - enc_fl_prev);
+        int16_t d_fr = DIR_FR * (int16_t)(enc_fr - enc_fr_prev);
+        int32_t d_rl = DIR_RL * (int32_t)(enc_rl - enc_rl_prev);
+        int32_t d_rr = DIR_RR * (int32_t)(enc_rr - enc_rr_prev);
 
         vel_fl = (float)d_fl * TWO_PI / COUNTS_PER_REV / TICK_SECONDS;
         vel_fr = (float)d_fr * TWO_PI / COUNTS_PER_REV / TICK_SECONDS;
