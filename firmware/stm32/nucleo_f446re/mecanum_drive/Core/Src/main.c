@@ -17,7 +17,8 @@
   */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
-#include "main.h"
+
+#include <main.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -37,6 +38,12 @@
 #define TICK_SECONDS     0.02f
 #define TWO_PI           6.283185f
 
+
+
+/* Development duty ceiling out of the 999 ARR full scale: a wrong sign or a
+ * runaway command crawls instead of bolting. Raised deliberately once closed
+ * loop is trusted. */
+#define DUTY_CEILING 300
 
 /* Per-wheel forward-drive sign, order {FL, FR, RL, RR}.
  * Left wheels mount mirror-imaged to the right, so their encoders count the
@@ -89,6 +96,13 @@ volatile float vel_fr = 0.0f;
 volatile float vel_rl = 0.0f;
 volatile float vel_rr = 0.0f;
 
+
+
+/* Master motion permission. Starts disarmed so the board boots inert; only an
+ * explicit motors_arm() permits motion. volatile: the Step 5 watchdog clears it
+ * from interrupt context while the main loop reads it. */
+volatile uint8_t motors_armed = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -111,6 +125,10 @@ void mecanum_drive(int16_t vx, int16_t vy, int16_t omega);
 void encoders_read_raw(void);
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
+
+void motors_disarm(void);
+void motors_arm(void);
+
 
 
 /* USER CODE END PFP */
@@ -167,10 +185,6 @@ int main(void)
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4);
 
-  /* Enable all motor drivers */
-  HAL_GPIO_WritePin(GPIOC, M1_REN_Pin|M1_LEN_Pin|M2_REN_Pin|M2_LEN_Pin
-                          |M3_REN_Pin|M3_LEN_Pin|M4_REN_Pin|M4_LEN_Pin,
-                          GPIO_PIN_SET);
 
   /* Turn on hardware quadrature counting for all four encoders.
    * Without these calls the CNT registers stay frozen at 0 no
@@ -195,7 +209,8 @@ int main(void)
 
 	  /* --- Encoder raw-count test: motors intentionally idle --- */
 
-	  HAL_Delay(20);         /* ~50 reads per second */
+	  HAL_Delay(20);
+
 
 
 	  /* Test: drive forward at 50% speed for 2 seconds */
@@ -696,12 +711,51 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/* Cut all motor output and forbid motion. Zero the duty BEFORE dropping the
+ * enables: the timers keep running, so a channel left with a stale compare value
+ * would resume that speed the instant something re-armed. */
+void motors_disarm(void)
+{
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0);
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 0);
+    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 0);
+    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_2, 0);
+    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3, 0);
+    __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_4, 0);
+
+    HAL_GPIO_WritePin(GPIOC, M1_REN_Pin|M1_LEN_Pin|M2_REN_Pin|M2_LEN_Pin
+                            |M3_REN_Pin|M3_LEN_Pin|M4_REN_Pin|M4_LEN_Pin,
+                            GPIO_PIN_RESET);
+
+    motors_armed = 0;
+}
+
+/* Permit motion. Disarms first so arming can never inherit a stale duty. */
+void motors_arm(void)
+{
+    motors_disarm();
+
+    HAL_GPIO_WritePin(GPIOC, M1_REN_Pin|M1_LEN_Pin|M2_REN_Pin|M2_LEN_Pin
+                            |M3_REN_Pin|M3_LEN_Pin|M4_REN_Pin|M4_LEN_Pin,
+                            GPIO_PIN_SET);
+
+    motors_armed = 1;
+}
 void motor_set(TIM_HandleTypeDef *htim, uint32_t rpwm_ch, uint32_t lpwm_ch,
                GPIO_TypeDef *en_port, uint16_t ren_pin, uint16_t len_pin,
                int16_t speed)
 {
+    /* Gate here, not at the call site, so every caller inherits it. */
+    if (!motors_armed)
+    {
+        __HAL_TIM_SET_COMPARE(htim, rpwm_ch, 0);
+        __HAL_TIM_SET_COMPARE(htim, lpwm_ch, 0);
+        return;
+    }
     uint16_t duty = (uint16_t)(speed < 0 ? -speed : speed);
-    if (duty > 999) duty = 999;
+    if (duty > DUTY_CEILING) duty = DUTY_CEILING;
 
     if (speed > 0)
     {
