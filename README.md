@@ -349,15 +349,6 @@ For detailed firmware development notes, see [`docs/user-guide/stm32-development
 
 ---
 
-## Demo
-
-**First powered drive — all four wheels rolling forward under battery**
-
-https://github.com/user-attachments/assets/70353340-a9e4-4cdd-b505-c8343d9dc1bf
-
-**Encoder velocities live on the STM32 debugger (wheels rolled by hand)**
-
-https://github.com/user-attachments/assets/f964e577-ef93-403b-8885-005ee88034cf
 ## Contributing
 
 1. Fork the repository
