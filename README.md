@@ -1,6 +1,15 @@
 # Mecanum Wheel Mobile Robot Project
 
-A mobile robot platform utilizing mecanum wheels for omnidirectional movement, built around the STM32 NUCLEO-F446RE microcontroller and Raspberry Pi 5, targeting full autonomous navigation with ROS 2.
+**A four-wheel mecanum-drive robot that drives under its own battery power today, with all four encoders reporting live closed-loop-ready velocity feedback.**
+
+Most "autonomous robot" portfolio projects stop at Gazebo. This one doesn't: the physical robot has driven under battery power with wheels off the ground, all four BTS7960-driven motors commanded through a real mecanum mixer, and all four quadrature encoders confirmed reading live on hardware. The ROS 2 stack — inverse/forward kinematics, dead-reckoning odometry, and a full Gazebo Harmonic simulation validated to 9 significant figures against the robot's own math — is built and tested in parallel, targeting Nav2 autonomous navigation once the STM32↔Raspberry Pi serial link, sensor fusion, and SLAM land.
+
+The system splits across two boards by responsibility:
+
+- **STM32 Nucleo-F446RE** — the real-time layer. Deterministic PWM generation, quadrature encoder reading, and (soon) closed-loop velocity control, with no OS in the way.
+- **Raspberry Pi 5** — the perception and autonomy layer, running ROS 2 Jazzy: kinematics, odometry, sensor fusion, SLAM, and Nav2.
+
+The two boards will talk over a serial link (USART2 on the Nucleo side) — the protocol is in development now, ahead of the ROS 2-side bridge node. See [System Architecture](#system-architecture) for the full breakdown.
 
 ## Project Overview
 
@@ -10,7 +19,19 @@ This project implements a mecanum wheel mobile robot capable of:
 - Simultaneous translation and rotation
 - LiDAR-based mapping and autonomous navigation (planned)
 
-The build follows a two-deck chassis: Deck 1 carries the power distribution layer (complete), and Deck 2 will carry the compute and sensing layer (in progress). Firmware is developed incrementally through a structured phase-based approach.
+The build follows a two-deck chassis: Deck 1 carries the power distribution layer (complete), and Deck 2 will carry the compute and sensing layer (in progress). Firmware and ROS 2 software are developed incrementally through a structured phase-based approach.
+
+---
+
+## Demo
+
+**First powered drive** — all four wheels driven forward under battery power, wheels off the ground, all four encoders confirmed reading live on the debugger.
+
+https://github.com/user-attachments/assets/70353340-a9e4-4cdd-b505-c8343d9dc1bf
+
+**Encoder velocities on the debugger** — live per-wheel velocity readouts via STM32 Live Expressions, confirming the forward-positive sign convention on hardware.
+
+https://github.com/user-attachments/assets/f964e577-ef93-403b-8885-005ee88034cf
 
 ---
 
@@ -23,31 +44,47 @@ The build follows a two-deck chassis: Deck 1 carries the power distribution laye
 | H1 | Chassis frame assembly | ✅ Complete |
 | H2 | Motor and wheel mounting | ✅ Complete |
 | H3 | Deck 1 – Power wiring (bus bars, fuse, BTS7960, bucks) | ✅ Complete |
-| H4 | Deck 2 – Compute and sensing layer | 🔄 In Progress |
-| H5 | Full system integration and cable management | ⏳ Planned |
+| H4 | Control-side wiring (encoder signal wires + BTS7960 logic connections, continuity-checked) | ✅ Complete |
+| H5 | Deck 2 – Compute and sensing layer mounting | 🔄 In Progress |
+| H6 | Full system integration and cable management | ⏳ Planned |
 
-### Firmware (STM32 NUCLEO-F446RE)
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 1 | LED Blink – GPIO digital output | ✅ Complete |
-| 2 | PWM LED Fade – Timer/PWM control | ✅ Complete |
-| 3 | Single Motor Test – BTS7960 driver + one motor | ✅ Complete |
-| 4 | Encoder Test – Motor encoder feedback | ⏳ Planned |
-| 5 | PID Motor Control – Closed-loop velocity control | ⏳ Planned |
-| 6 | UART Communication – STM32 to Raspberry Pi | ⏳ Planned |
-| 7 | IMU Integration – MPU-9250 via I2C | ⏳ Planned |
-| 8 | Complete Mecanum Firmware – Full 4-motor system | ⏳ Planned |
-
-### ROS 2 (Raspberry Pi 5)
+### Firmware (STM32 Nucleo-F446RE)
 
 | Stage | Description | Status |
 |-------|-------------|--------|
-| R1 | mecanum_actions_ws – ROS 2 workspace setup | ✅ Complete |
-| R2 | Velocity command interface to STM32 via UART | ⏳ Planned |
-| R3 | RPLIDAR C1 integration and scan publishing | ⏳ Planned |
-| R4 | SLAM (slam_toolbox) – map building | ⏳ Planned |
-| R5 | Nav2 – autonomous path planning and navigation | ⏳ Planned |
+| F1 | Bring-up: GPIO LED blink, PWM LED fade, single-motor BTS7960 test | ✅ Complete |
+| F2 | Full 4-motor mecanum drive — `mecanum_drive()` / `motor_set()`, 8 PWM channels on TIM3/TIM4 @ 1 kHz | ✅ Complete |
+| F3 | All four wheel encoders read via hardware quadrature timers (TIM1, TIM8, TIM5, TIM2); 50 Hz velocity computed via a TIM6 interrupt | ✅ Complete |
+| F4 | Forward-positive per-wheel sign convention, verified on hardware | ✅ Complete |
+| F5 | Disarm-at-boot safety layer (`motors_arm()` gate, duty-cycle ceiling), hardware-verified with the debugger | ✅ Complete |
+| F6 | First powered drive — all four wheels under battery, all four encoders confirmed live | ✅ Complete |
+| F7 | Serial protocol over USART2, tested against a Mac Python script | ⏳ Planned |
+| F8 | Command watchdog | ⏳ Planned |
+| F9 | Closed-loop PID velocity control | ⏳ Planned |
+
+### ROS 2 (Raspberry Pi 5, `ros2_ws/`)
+
+| Stage | Description | Status |
+|-------|-------------|--------|
+| R1 | Package scaffolding — `mecanum_bringup`, `mecanum_description`, `mecanum_interfaces`, `mecanum_control` | ✅ Complete |
+| R2 | `mecanum_kinematics` node — inverse kinematics, `/cmd_vel` → `/wheel_speeds` | ✅ Complete |
+| R3 | `mecanum_odometry` node — forward kinematics, dead-reckoning odometry, publishes `/odom` and the `odom`→`base_link` TF | ✅ Complete |
+| R4 | Gazebo Harmonic simulation — headless, `ros_gz` bridge; kinematics/odometry validated against the simulator to 9 significant figures; visualized in Foxglove | ✅ Complete |
+| R5 | Nucleo serial-bridge node | ⏳ Planned |
+| R6 | IMU fusion via `robot_localization` | ⏳ Planned |
+| R7 | RPLIDAR `/scan` integration | ⏳ Planned |
+| R8 | SLAM (`slam_toolbox`) | ⏳ Planned |
+| R9 | Nav2 autonomous navigation | ⏳ Planned |
+
+---
+
+## Safety Architecture
+
+There is **no physical e-stop button** on this robot — that hardware was deliberately dropped in favor of a layered electrical/firmware approach instead:
+
+1. **Physical kill — XT60 battery disconnect.** Unconditional, always available: pull the connector and every driver loses power.
+2. **Automatic kill — firmware command watchdog** *(planned)*. If the serial link to the Raspberry Pi goes quiet, the Nucleo will disarm itself.
+3. **Deliberate kill — explicit disarm.** The board boots disarmed: all four BTS7960 enable pins are held low at startup, and an explicit `motors_arm()` call is required before any PWM reaches the drivers. Disarming drops the enable pins **and** zeros the PWM duty registers. A duty-cycle ceiling (300 of 999) also caps speed during development. This layer is implemented and hardware-verified with the debugger today.
 
 ---
 
@@ -63,9 +100,9 @@ The build follows a two-deck chassis: Deck 1 carries the power distribution laye
 - Installed positive and negative bus bars as the central power distribution point
 - Wired XT60 battery connector → inline fuse → positive bus bar
 - Star-wired all BTS7960 PWR inputs and both buck converter inputs from the bus bars
-- Adjusted and verified output voltages with a multimeter:
-  - **Buck A → 5.10 V** (Raspberry Pi 5 supply)
-  - **Buck B → 5.00 V** (STM32 Nucleo supply)
+- Adjusted and verified output voltages with a multimeter (the multimeter reading is treated as ground truth, not the buck modules' onboard displays):
+  - **Buck A → 5.00 V** (STM32 Nucleo supply)
+  - **Buck B → 5.10 V** (Raspberry Pi 5 supply)
 
 **Result:** Deck 1 power wiring complete and tested. All voltages verified. Ready for Deck 2 assembly.
 
@@ -75,16 +112,29 @@ The build follows a two-deck chassis: Deck 1 carries the power distribution laye
 
 ---
 
+### Control-Side Wiring ✅ Complete
+
+**Goal:** Get every signal wire between Deck 1's drive electronics and the Nucleo in place and verified, ahead of Deck 2 going on top.
+
+**What was done:**
+- Ran all four encoder signal wires from the motors to the Nucleo
+- Wired all four BTS7960 logic connections — RPWM, LPWM, R_EN, L_EN per driver
+- Tied a common logic ground across all four drivers and the Nucleo GND
+- Continuity-checked every connection
+
+**Result:** The Nucleo now has everything it needs, electrically, to drive all four motors and read all four encoders — confirmed by the first powered drive below.
+
+---
+
 ### Deck 2 – Compute and Sensing Layer 🔄 In Progress
 
 **Goal:** Mount and connect all compute and sensing components on Deck 2.
 
 **Planned components:**
 - Raspberry Pi 5 (compute)
-- STM32 NUCLEO-F446RE (motor firmware)
+- STM32 Nucleo-F446RE (motor firmware)
 - RPLIDAR C1 (360° LiDAR)
 - MPU-9250 IMU (inertial measurement)
-- E-stop button (safety)
 - Pass-through grommets for encoder and driver logic cables from Deck 1
 
 **Status:** Hole layout planned and drilling guide prepared. Mounting not yet started.
@@ -93,17 +143,19 @@ The build follows a two-deck chassis: Deck 1 carries the power distribution laye
 
 ## Roadmap to Completion
 
-The following stages run in dependency order. Hardware H4/H5 and Firmware phases 4–8 can proceed in parallel once Deck 2 is physically mounted.
+Two tracks can proceed largely in parallel — firmware software work doesn't need Deck 2 mounted, since Deck 1 and the control-side wiring already give the Nucleo everything it needs.
 
 | Stage | Description | Depends on |
 |-------|-------------|------------|
-| 1 | Deck 2 mounting (RPi 5, Nucleo, RPLIDAR, IMU) | H3 done |
-| 2 | Full cable management and system integration | H4 done |
-| 3 | STM32 encoder feedback + PID velocity control (FW phases 4–5) | H3 done |
-| 4 | UART bridge: STM32 ↔ Raspberry Pi (FW phase 6) | Stage 3 |
-| 5 | IMU integration (FW phase 7) + ROS 2 velocity command interface | Stage 4 |
-| 6 | RPLIDAR integration + SLAM map building | Stage 5 |
-| 7 | Nav2 autonomous navigation | Stage 6 |
+| 1 | Serial protocol over USART2, validated against a Mac Python test script | Firmware track — in progress now |
+| 2 | Command watchdog (automatic kill on lost link) | Stage 1 |
+| 3 | Closed-loop PID velocity control | Stage 2 |
+| 4 | Deck 2 mounting (Raspberry Pi 5, RPLIDAR C1, IMU) | Hardware track — in progress now |
+| 5 | Full cable management and system integration | Stage 4 |
+| 6 | ROS 2 Nucleo serial-bridge node | Stages 1 and 5 |
+| 7 | IMU fusion via `robot_localization` | Stage 6 |
+| 8 | RPLIDAR `/scan` integration + SLAM (`slam_toolbox`) | Stage 6 |
+| 9 | Nav2 autonomous navigation | Stages 7 and 8 |
 
 ---
 
@@ -114,7 +166,7 @@ The following stages run in dependency order. Hardware H4/H5 and Firmware phases
 | Component | Part | Notes |
 |-----------|------|-------|
 | Main compute | Raspberry Pi 5 (8 GB) | Runs ROS 2, SLAM, Nav2 |
-| Microcontroller | STM32 NUCLEO-F446RE | ARM Cortex-M4, 180 MHz, 512 KB Flash |
+| Microcontroller | STM32 Nucleo-F446RE | ARM Cortex-M4, 180 MHz, 512 KB Flash |
 | IMU | MPU-9250 | I2C interface |
 | LiDAR | RPLIDAR C1 | 360° scanning, USB interface |
 
@@ -123,10 +175,10 @@ The following stages run in dependency order. Hardware H4/H5 and Firmware phases
 | Component | Part | Notes |
 |-----------|------|-------|
 | Battery | 3S LiPo (~11.1 V nominal) | XT60 connector |
-| Inline fuse | — | Battery-side protection |
+| Inline fuse | 30 A | Battery-side protection |
 | Bus bars | Positive + negative | Star topology distribution point |
-| Buck A | XL4016E1 | Set to 5.10 V → Raspberry Pi 5 |
-| Buck B | XL4016E1 | Set to 5.00 V → STM32 Nucleo |
+| Buck A | XL4016E1 | Set to 5.00 V → STM32 Nucleo |
+| Buck B | XL4016E1 | Set to 5.10 V → Raspberry Pi 5 |
 
 ### Drive System
 
@@ -152,9 +204,11 @@ The following stages run in dependency order. Hardware H4/H5 and Firmware phases
 
 | Parameter | Value |
 |-----------|-------|
-| Wheel radius (r) | TBD – measure from assembled chassis |
-| Half-wheelbase (lx) | TBD – centre-to-centre, longitudinal |
-| Half-track (ly) | TBD – centre-to-centre, lateral |
+| Wheel-contact layout | 200 × 200 mm square |
+| Wheel radius (r) | 0.0483 m (caliper-measured, confirmed) |
+| Half-wheelbase (lx) | 0.1 m |
+| Half-track (ly) | 0.1 m |
+| Kinematic origin | Centre of the wheel rectangle; `base_link` sits at ground level at this centroid |
 
 Wheel naming: **FL** (front-left), **FR** (front-right), **RL** (rear-left), **RR** (rear-right).
 
@@ -167,17 +221,21 @@ Wheel naming: **FL** (front-left), **FR** (front-right), **RL** (rear-left), **R
 ├── firmware/               # Microcontroller firmware
 │   ├── stm32/
 │   │   └── nucleo_f446re/
-│   │       ├── led_blink/        # Phase 1
-│   │       ├── pwm_led_fade/     # Phase 2
-│   │       └── mecanum_drive/    # Phase 3+ – single motor test through
-│   │                             # the complete 4-motor mecanum firmware
+│   │       ├── led_blink/        # Bring-up phase
+│   │       ├── pwm_led_fade/     # Bring-up phase
+│   │       └── mecanum_drive/    # Active project: full 4-motor mecanum drive,
+│   │                             # 4-wheel quadrature encoder reading, and the
+│   │                             # disarm-at-boot safety layer
 │   ├── esp32/
 │   ├── arduino/
 │   └── drivers/
 ├── ros2_ws/                # ROS 2 Jazzy colcon workspace (runs on the Raspberry Pi 5)
 │   └── src/
+│       ├── mecanum_bringup/      # Launch files and config, including headless
+│       │                         # Gazebo Harmonic simulation bring-up
 │       ├── mecanum_description/  # Robot URDF (xacro) + display.launch.py
-│       └── mecanum_interfaces/   # Custom msg/srv/action definitions
+│       ├── mecanum_interfaces/   # Custom msg/srv/action definitions
+│       └── mecanum_control/      # mecanum_kinematics and mecanum_odometry nodes
 ├── hardware/               # Hardware documentation
 │   ├── cad/                # CAD files and 3D models
 │   ├── schematics/         # Electrical schematics
@@ -197,16 +255,18 @@ Wheel naming: **FL** (front-left), **FR** (front-right), **RL** (rear-left), **R
 
 ---
 
-## Architecture: Two Parts
+## System Architecture
 
-The project splits into two independently-running parts that talk to each other over UART:
+The project splits into two independently-running parts that will talk to each other over a serial link:
 
-- **`firmware/`** — runs on the STM32 NUCLEO-F446RE. Handles low-level motor control: PWM generation, encoder feedback, and (once Phase 6 lands) the UART link to the Raspberry Pi.
-- **`ros2_ws/`** — a ROS 2 Jazzy colcon workspace that runs on the Raspberry Pi 5. Currently holds:
-  - `mecanum_description` — the robot's URDF, built from measurements taken off the physical robot. `base_link` sits at ground level, at the centroid of the 200×200mm wheel-contact square. `display.launch.py` brings up `robot_state_publisher` and `joint_state_publisher` for visualizing the model.
+- **`firmware/`** — runs on the STM32 Nucleo-F446RE. Handles the real-time layer: 8-channel PWM generation for all four motors, quadrature encoder reading and velocity computation for all four wheels, and the disarm-at-boot safety gate. Once Phase F7 lands, it will also own the USART2 serial link to the Raspberry Pi.
+- **`ros2_ws/`** — a ROS 2 Jazzy colcon workspace that runs on the Raspberry Pi 5. Currently holds four packages:
+  - `mecanum_bringup` — launch files and configuration, including the headless Gazebo Harmonic simulation bring-up.
+  - `mecanum_description` — the robot's URDF, built from measurements taken off the physical robot. `base_link` sits at ground level, at the centroid of the 200×200 mm wheel-contact square. `display.launch.py` brings up `robot_state_publisher` and `joint_state_publisher` for visualizing the model.
   - `mecanum_interfaces` — custom interfaces (`WheelSpeeds.msg`, `ResetOdometry.srv`, `MoveForSeconds.action`) shared between nodes.
+  - `mecanum_control` — the `mecanum_kinematics` node (inverse kinematics, `/cmd_vel` → `/wheel_speeds`) and the `mecanum_odometry` node (forward kinematics, dead-reckoning odometry, `/odom` and the `odom`→`base_link` TF). Both are validated in a headless Gazebo Harmonic simulation via the `ros_gz` bridge, to 9 significant figures against the simulator, and visualized in Foxglove.
 
-  `ros2_ws/` has its own `.gitignore` for `build/`, `install/`, and `log/`.
+  `ros2_ws/` has its own `.gitignore` for `build/`, `install/`, and `log/`. An earlier workspace, `mecanum_actions_ws`, is retained only as a ROS 2 fundamentals learning archive — it is not part of the active system.
 
 ---
 
@@ -228,9 +288,9 @@ The mecanum wheel configuration allows for omnidirectional movement through inde
 Each motor is controlled via a BTS7960 driver using two PWM channels:
 - **RPWM**: Forward direction
 - **LPWM**: Reverse direction
-- **Duty cycle**: 0–999 steps (1000 resolution levels)
+- **Duty cycle**: 0–999 steps (1000 resolution levels), capped at 300 during development by the safety layer
 - **PWM frequency**: 1 kHz for development, 20 kHz for production (reduces audible noise)
-- **Timer source**: APB1 at 84 MHz, prescaler 83 for 1 MHz tick, period 999 for 1 kHz output
+- **Timer source**: TIM3/TIM4 on APB1 at 90 MHz, prescaler 89 (1 MHz tick), ARR/period 999, giving 1 kHz PWM
 
 ---
 
@@ -243,6 +303,7 @@ Each motor is controlled via a BTS7960 driver using two PWM channels:
 - ST-LINK Server (required on macOS for flashing)
 - STM32Cube FW_F4 V1.28.3 firmware package
 - USB cable for ST-LINK/V2-1 on-board debugger
+- ROS 2 Jazzy + Gazebo Harmonic (on the Raspberry Pi 5, for the `ros2_ws/` side)
 
 ### Installation
 
@@ -251,11 +312,14 @@ Each motor is controlled via a BTS7960 driver using two PWM channels:
    git clone https://github.com/KamalaIssack/Mecanum-wheel-mobile-robot-project.git
    ```
 
-2. Open STM32CubeIDE and import the desired firmware project from `firmware/stm32/nucleo_f446re/`
+2. **Firmware:** Open STM32CubeIDE and import the `mecanum_drive` project from `firmware/stm32/nucleo_f446re/`. Use STM32CubeMX to regenerate peripheral configuration code if needed, then build and flash to the Nucleo-F446RE via the on-board ST-LINK debugger.
 
-3. Use STM32CubeMX to generate/regenerate peripheral configuration code as needed
-
-4. Build and flash to the NUCLEO-F446RE board via the on-board ST-LINK debugger
+3. **ROS 2 (Raspberry Pi 5):**
+   ```bash
+   cd ros2_ws
+   colcon build
+   source install/setup.bash
+   ```
 
 ### Development Workflow
 
@@ -269,7 +333,8 @@ Each motor is controlled via a BTS7960 driver using two PWM channels:
 ## Working Practices
 
 - **Star topology**: Every power consumer connects directly to the bus bars, never daisy-chained
-- **Voltage verification**: Both bucks are measured with a multimeter after any adjustment before powering compute boards
+- **Voltage verification**: A multimeter reading is treated as ground truth for buck output voltage — not a buck module's onboard display — checked after any adjustment before powering compute boards
+- **Arm before motion**: The board always boots disarmed; motors only receive PWM after an explicit `motors_arm()` call, and the development duty-cycle ceiling stays in place until closed-loop control is validated
 - **Battery safety**: LiPo never left unattended while charging; inline fuse is the first thing in the positive line
 - **User code protection**: All STM32 application code lives inside `/* USER CODE BEGIN/END */` blocks
 
@@ -277,8 +342,7 @@ Each motor is controlled via a BTS7960 driver using two PWM channels:
 
 ## Technical Notes
 
-- The STM32F446RE currently uses ~1.7% Flash and ~1.3% RAM, leaving plenty of room for the full firmware
-- The system will support up to 8 PWM channels (2 per motor × 4 motors)
+- The system uses 8 PWM channels (2 per motor × 4 motors) across TIM3/TIM4
 - ROS 2 workspace lives in this repo at `ros2_ws/`. The companion repository `mecanum_actions_ws` is now a ROS 2 fundamentals learning archive and no longer holds production packages.
 
 For detailed firmware development notes, see [`docs/user-guide/stm32-development-log.md`](docs/user-guide/stm32-development-log.md).
