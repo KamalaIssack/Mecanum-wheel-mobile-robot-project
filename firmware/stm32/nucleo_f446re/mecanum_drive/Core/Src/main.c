@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -97,6 +97,12 @@ volatile float vel_fr = 0.0f;
 volatile float vel_rl = 0.0f;
 volatile float vel_rr = 0.0f;
 
+
+
+/* Raised by the TIM6 ISR when a fresh velocity sample exists, cleared by the
+ * main loop once it has sent one line. volatile: crosses the ISR/main-loop
+ * boundary. Single byte, so the load/store is atomic on Cortex-M4. */
+volatile uint8_t tx_ready = 0;
 
 
 /* Master motion permission. Starts disarmed so the board boots inert; only an
@@ -209,31 +215,29 @@ int main(void)
   while (1)
   {
 
+	  /* One telemetry line per fresh TIM6 sample. The flag paces this at
+	       * 50 Hz, so no HAL_Delay is needed. */
+	      if (tx_ready)
+	      {
+	        tx_ready = 0;   /* clear before the send: a sample arriving during
+	                         * transmit stays pending rather than being dropped */
 
-	  /* --- Encoder raw-count test: motors intentionally idle --- */
+	        /* Snapshot the volatile velocities so all four fields in a line come
+	         * from one instant, even if the ISR updates them mid-format. */
+	        float fl = vel_fl;
+	        float fr = vel_fr;
+	        float rl = vel_rl;
+	        float rr = vel_rr;
 
-	  HAL_Delay(20);
-
-
-
-	  /* Test: drive forward at 50% speed for 2 seconds */
-	  /* --- Old open-loop motor test, disabled during encoder test ---
-	  mecanum_drive(500, 0, 0);
-	  HAL_Delay(2000);
-
-
-	  mecanum_drive(0, 0, 0);
-	  HAL_Delay(1000);
-
-
-	  mecanum_drive(0, 500, 0);
-	  HAL_Delay(2000);
-
-
-	  mecanum_drive(0, 0, 0);
-	  HAL_Delay(1000);
-	  */
-
+	        char buf[64];
+	        int n = snprintf(buf, sizeof(buf),
+	                         "V,%+7.2f,%+7.2f,%+7.2f,%+7.2f\n",
+	                         fl, fr, rl, rr);
+	        if (n > 0)
+	        {
+	          HAL_UART_Transmit(&huart2, (uint8_t *)buf, (uint16_t)n, HAL_MAX_DELAY);
+	        }
+	      }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -855,6 +859,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         enc_fr_prev = enc_fr;
         enc_rl_prev = enc_rl;
         enc_rr_prev = enc_rr;
+
+
+        tx_ready = 1;
+
     }
 }
 
