@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -105,6 +106,30 @@ volatile float vel_rr = 0.0f;
 volatile uint8_t tx_ready = 0;
 
 
+
+/* ---- Command receive (USART2 RX) ---- */
+
+/* One-byte landing slot HAL fills on each interrupt receive. */
+uint8_t rx_byte = 0;
+
+/* Ring buffer: ISR writes bytes at head, main loop reads at tail. Decouples the
+ * fast interrupt from the slow line parsing. Power-of-two size so the wrap is a
+ * bitmask, not a divide. Single-writer-per-index (ISR owns head, main owns
+ * tail) makes it lock-free on Cortex-M4. */
+#define RX_RING_SIZE 128
+volatile uint8_t  rx_ring[RX_RING_SIZE];
+volatile uint16_t rx_head = 0;
+volatile uint16_t rx_tail = 0;
+
+/* Commanded wheel velocities in rad/s, order FL FR RL RR. Populated by a valid
+ * C,... line. Not wired to motors yet: motion stays gated by the disarm state,
+ * and the command watchdog is Step 5. */
+volatile float target_fl = 0.0f;
+volatile float target_fr = 0.0f;
+volatile float target_rl = 0.0f;
+volatile float target_rr = 0.0f;
+
+
 /* Master motion permission. Starts disarmed so the board boots inert; only an
  * explicit motors_arm() permits motion. volatile: the Step 5 watchdog clears it
  * from interrupt context while the main loop reads it. */
@@ -137,7 +162,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 void motors_disarm(void);
 void motors_arm(void);
 
-
+void process_rx(void);
 
 /* USER CODE END PFP */
 
@@ -208,43 +233,50 @@ int main(void)
 
   /* _IT enables the interrupt; plain Start would never fire the callback */
   HAL_TIM_Base_Start_IT(&htim6);
+
+  /* Arm the first interrupt receive. Each byte re-arms the next inside
+   * HAL_UART_RxCpltCallback, so this one call starts a self-sustaining chain. */
+  HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    /* One telemetry line per fresh TIM6 sample. The flag paces this at
+     * 50 Hz, so no HAL_Delay is needed. */
+    if (tx_ready)
+    {
+      tx_ready = 0;   /* clear before the send: a sample arriving during
+                       * transmit stays pending rather than being dropped */
 
-	  /* One telemetry line per fresh TIM6 sample. The flag paces this at
-	       * 50 Hz, so no HAL_Delay is needed. */
-	      if (tx_ready)
-	      {
-	        tx_ready = 0;   /* clear before the send: a sample arriving during
-	                         * transmit stays pending rather than being dropped */
+      /* Snapshot the volatile velocities so all four fields in a line come
+       * from one instant, even if the ISR updates them mid-format. */
+      float fl = vel_fl;
+      float fr = vel_fr;
+      float rl = vel_rl;
+      float rr = vel_rr;
 
-	        /* Snapshot the volatile velocities so all four fields in a line come
-	         * from one instant, even if the ISR updates them mid-format. */
-	        float fl = vel_fl;
-	        float fr = vel_fr;
-	        float rl = vel_rl;
-	        float rr = vel_rr;
+      char buf[64];
+      int n = snprintf(buf, sizeof(buf),
+                       "V,%+7.2f,%+7.2f,%+7.2f,%+7.2f\n",
+                       fl, fr, rl, rr);
+      if (n > 0)
+      {
+        HAL_UART_Transmit(&huart2, (uint8_t *)buf, (uint16_t)n, HAL_MAX_DELAY);
+      }
+    }
 
-	        char buf[64];
-	        int n = snprintf(buf, sizeof(buf),
-	                         "V,%+7.2f,%+7.2f,%+7.2f,%+7.2f\n",
-	                         fl, fr, rl, rr);
-	        if (n > 0)
-	        {
-	          HAL_UART_Transmit(&huart2, (uint8_t *)buf, (uint16_t)n, HAL_MAX_DELAY);
-	        }
-	      }
+    /* Assemble and parse any received command bytes. */
+    process_rx();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
-
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -865,6 +897,109 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
     }
 }
+
+/* One byte arrived on USART2. Kept tiny: stash and re-arm. No parsing here;
+ * float parsing in an ISR would stall and risk dropping the next byte (this
+ * UART has no RX FIFO). */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART2)
+    {
+        uint16_t next = (rx_head + 1u) & (RX_RING_SIZE - 1u);
+        if (next != rx_tail)          /* store only if not full */
+        {
+            rx_ring[rx_head] = rx_byte;
+            rx_head = next;
+        }
+        /* If full, drop the byte; newline framing resyncs on the next line. */
+
+        HAL_UART_Receive_IT(&huart2, &rx_byte, 1);   /* re-arm */
+    }
+}
+
+/* A latched UART error (e.g. overrun) can stop interrupt reception dead.
+ * Re-arming clears it and keeps RX alive for the rest of the session. */
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART2)
+    {
+        HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
+    }
+}
+
+/* Parse "C,<fl>,<fr>,<rl>,<rr>" into the four targets, then echo "A,..." so the
+ * host sees exactly what we understood. Any deviation (wrong tag, missing
+ * number or comma) drops the line silently; the next newline resyncs. strtof
+ * (not sscanf) avoids pulling in scanf-float support. */
+static void parse_command(const char *s)
+{
+    if (s[0] != 'C' || s[1] != ',')
+        return;
+
+    const char *p = s + 2;
+    char *end;
+    float v[4];
+
+    for (int i = 0; i < 4; i++)
+    {
+        v[i] = strtof(p, &end);
+        if (end == p)                 /* no digits consumed => malformed */
+            return;
+        p = end;
+        if (i < 3)
+        {
+            if (*p != ',')
+                return;
+            p++;
+        }
+    }
+
+    target_fl = v[0];
+    target_fr = v[1];
+    target_rl = v[2];
+    target_rr = v[3];
+
+    char buf[64];
+    int n = snprintf(buf, sizeof(buf), "A,%+7.2f,%+7.2f,%+7.2f,%+7.2f\n",
+                     v[0], v[1], v[2], v[3]);
+    if (n > 0)
+        HAL_UART_Transmit(&huart2, (uint8_t *)buf, (uint16_t)n, HAL_MAX_DELAY);
+}
+
+/* Drain the ring, assembling bytes into a line until '\n', then parse it. Runs
+ * in the main loop where slow work is safe. line[]/idx are static: one command
+ * can arrive spread across several loop iterations. */
+void process_rx(void)
+{
+    static char     line[64];
+    static uint16_t idx = 0;
+
+    while (rx_tail != rx_head)
+    {
+        char c = (char)rx_ring[rx_tail];
+        rx_tail = (rx_tail + 1u) & (RX_RING_SIZE - 1u);
+
+        if (c == '\n')
+        {
+            line[idx] = '\0';
+            parse_command(line);
+            idx = 0;
+        }
+        else if (c == '\r')
+        {
+            /* ignore CR (tolerate CRLF) */
+        }
+        else if (idx < sizeof(line) - 1)
+        {
+            line[idx++] = c;
+        }
+        else
+        {
+            idx = 0;   /* overlong line: discard, resync on next newline */
+        }
+    }
+}
+
 
 /* USER CODE END 4 */
 
