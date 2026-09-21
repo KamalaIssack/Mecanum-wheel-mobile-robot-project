@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -130,6 +131,24 @@ volatile float target_rl = 0.0f;
 volatile float target_rr = 0.0f;
 
 
+/* Watchdog: ms timestamp of the last valid velocity command. Compared against
+ * HAL_GetTick() to detect a dead control link. */
+volatile uint32_t last_cmd_ms = 0;
+
+/* If armed and no valid C,... arrives within this many ms, the watchdog
+ * disarms. 500 ms: immune to normal jitter, stops within half a second of a
+ * real disconnect. Tighten once the Pi's command rate is known. */
+#define CMD_TIMEOUT_MS 500u
+
+/* State-change event to emit from the main loop (never transmit from an ISR).
+ * 0 = nothing pending. */
+volatile uint8_t status_event = 0;
+#define STATUS_ARMED     1
+#define STATUS_DISARMED  2
+#define STATUS_TIMEOUT   3
+
+
+
 /* Master motion permission. Starts disarmed so the board boots inert; only an
  * explicit motors_arm() permits motion. volatile: the Step 5 watchdog clears it
  * from interrupt context while the main loop reads it. */
@@ -162,7 +181,16 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 void motors_disarm(void);
 void motors_arm(void);
 
+
+
+
+
+
+
 void process_rx(void);
+static void parse_enable(const char *s);
+static void parse_command(const char *s);
+
 
 /* USER CODE END PFP */
 
@@ -269,9 +297,22 @@ int main(void)
       }
     }
 
+
     /* Assemble and parse any received command bytes. */
     process_rx();
+
+    /* Report any state change once, from the main loop (not the ISR). */
+    if (status_event)
+    {
+      uint8_t e = status_event;
+      status_event = 0;
+      const char *msg = (e == STATUS_ARMED)    ? "S,ARMED\n"    :
+                        (e == STATUS_DISARMED) ? "S,DISARMED\n" :
+                                                 "S,TIMEOUT\n";
+      HAL_UART_Transmit(&huart2, (uint8_t *)msg, (uint16_t)strlen(msg), HAL_MAX_DELAY);
+    }
     /* USER CODE END WHILE */
+
 
     /* USER CODE BEGIN 3 */
   }
@@ -789,11 +830,19 @@ void motors_disarm(void)
     __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3, 0);
     __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_4, 0);
 
+
     HAL_GPIO_WritePin(GPIOC, M1_REN_Pin|M1_LEN_Pin|M2_REN_Pin|M2_LEN_Pin
                             |M3_REN_Pin|M3_LEN_Pin|M4_REN_Pin|M4_LEN_Pin,
                             GPIO_PIN_RESET);
 
+    /* Forget commanded intent so a later arm can never inherit stale motion. */
+    target_fl = 0.0f;
+    target_fr = 0.0f;
+    target_rl = 0.0f;
+    target_rr = 0.0f;
+
     motors_armed = 0;
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);   /* LED off */
 }
 
 /* Permit motion. Disarms first so arming can never inherit a stale duty. */
@@ -801,12 +850,16 @@ void motors_arm(void)
 {
     motors_disarm();
 
+
     HAL_GPIO_WritePin(GPIOC, M1_REN_Pin|M1_LEN_Pin|M2_REN_Pin|M2_LEN_Pin
                             |M3_REN_Pin|M3_LEN_Pin|M4_REN_Pin|M4_LEN_Pin,
                             GPIO_PIN_SET);
 
+    last_cmd_ms = HAL_GetTick();   /* fresh timer so we do not instant-trip */
     motors_armed = 1;
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);   /* LED on */
 }
+
 void motor_set(TIM_HandleTypeDef *htim, uint32_t rpwm_ch, uint32_t lpwm_ch,
                GPIO_TypeDef *en_port, uint16_t ren_pin, uint16_t len_pin,
                int16_t speed)
@@ -887,6 +940,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         vel_rl = (float)d_rl * TWO_PI / COUNTS_PER_REV / TICK_SECONDS;
         vel_rr = (float)d_rr * TWO_PI / COUNTS_PER_REV / TICK_SECONDS;
 
+
         enc_fl_prev = enc_fl;
         enc_fr_prev = enc_fr;
         enc_rl_prev = enc_rl;
@@ -895,8 +949,17 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
         tx_ready = 1;
 
+        /* Command watchdog. Only meaningful while armed. Unsigned subtraction
+         * is wrap-safe. On timeout, disarm (which latches) and flag the event
+         * for the main loop to report. */
+        if (motors_armed && (HAL_GetTick() - last_cmd_ms > CMD_TIMEOUT_MS))
+        {
+            motors_disarm();
+            status_event = STATUS_TIMEOUT;
+        }
     }
 }
+
 
 /* One byte arrived on USART2. Kept tiny: stash and re-arm. No parsing here;
  * float parsing in an ISR would stall and risk dropping the next byte (this
@@ -959,12 +1022,28 @@ static void parse_command(const char *s)
     target_rl = v[2];
     target_rr = v[3];
 
+
+    last_cmd_ms = HAL_GetTick();   /* a valid command proves the link alive */
+
+
     char buf[64];
     int n = snprintf(buf, sizeof(buf), "A,%+7.2f,%+7.2f,%+7.2f,%+7.2f\n",
                      v[0], v[1], v[2], v[3]);
     if (n > 0)
         HAL_UART_Transmit(&huart2, (uint8_t *)buf, (uint16_t)n, HAL_MAX_DELAY);
 }
+
+
+/* "E,1" arms (clears the latch), "E,0" disarms. Only this path can arm; a
+ * velocity command never can, which is what makes the stop latch hold. */
+static void parse_enable(const char *s)
+{
+    if (s[1] != ',') return;
+    if (s[2] == '1')      { motors_arm();    status_event = STATUS_ARMED;    }
+    else if (s[2] == '0') { motors_disarm(); status_event = STATUS_DISARMED; }
+}
+
+
 
 /* Drain the ring, assembling bytes into a line until '\n', then parse it. Runs
  * in the main loop where slow work is safe. line[]/idx are static: one command
@@ -979,12 +1058,19 @@ void process_rx(void)
         char c = (char)rx_ring[rx_tail];
         rx_tail = (rx_tail + 1u) & (RX_RING_SIZE - 1u);
 
+
+
         if (c == '\n')
         {
             line[idx] = '\0';
-            parse_command(line);
+            if (line[0] == 'E')
+                parse_enable(line);
+            else
+                parse_command(line);
             idx = 0;
         }
+
+
         else if (c == '\r')
         {
             /* ignore CR (tolerate CRLF) */
