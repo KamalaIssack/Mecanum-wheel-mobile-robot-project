@@ -15,6 +15,7 @@ def find_port():
     return ports[0]
 
 def reader(ser):
+    last_ack = None
     while True:
         try:
             line = ser.readline().decode("ascii", errors="replace").strip()
@@ -24,8 +25,11 @@ def reader(ser):
             continue
         if line.startswith("S,"):
             print("  [STATUS] " + line)
+            last_ack = None
         elif line.startswith("A,"):
-            print("  [ACK] " + line)
+            if line != last_ack:
+                print("  [ACK] " + line)
+            last_ack = line
         elif line.startswith("V,"):
             parts = line.split(",")
             if len(parts) == 5:
