@@ -2,14 +2,14 @@
 
 **A four-wheel mecanum-drive robot that drives under its own battery power today, with all four encoders reporting live closed-loop-ready velocity feedback.**
 
-Most "autonomous robot" portfolio projects stop at Gazebo. This one doesn't: the physical robot has driven under battery power with wheels off the ground, all four BTS7960-driven motors commanded through a real mecanum mixer, and all four quadrature encoders confirmed reading live on hardware. The ROS 2 stack — inverse/forward kinematics, dead-reckoning odometry, and a full Gazebo Harmonic simulation validated to 9 significant figures against the robot's own math — is built and tested in parallel, targeting Nav2 autonomous navigation once the STM32↔Raspberry Pi serial link, sensor fusion, and SLAM land.
+Most "autonomous robot" portfolio projects stop at Gazebo. This one doesn't: the physical robot has driven under battery power with wheels off the ground, all four BTS7960-driven motors commanded through a real mecanum mixer, and all four quadrature encoders confirmed reading live on hardware. The ROS 2 stack — inverse/forward kinematics, dead-reckoning odometry, and a full Gazebo Harmonic simulation validated to 9 significant figures against the robot's own math — is built and tested in parallel, targeting Nav2 autonomous navigation once the ROS 2-side serial bridge, sensor fusion, and SLAM land.
 
 The system splits across two boards by responsibility:
 
-- **STM32 Nucleo-F446RE** — the real-time layer. Deterministic PWM generation, quadrature encoder reading, and (soon) closed-loop velocity control, with no OS in the way.
+- **STM32 Nucleo-F446RE** — the real-time layer. Deterministic PWM generation, quadrature encoder reading, a hardware-verified serial command interface with a command watchdog, and (soon) closed-loop velocity control, with no OS in the way.
 - **Raspberry Pi 5** — the perception and autonomy layer, running ROS 2 Jazzy: kinematics, odometry, sensor fusion, SLAM, and Nav2.
 
-The two boards will talk over a serial link (USART2 on the Nucleo side) — the protocol is in development now, ahead of the ROS 2-side bridge node. See [System Architecture](#system-architecture) for the full breakdown.
+The two boards will talk over a serial link (USART2 on the Nucleo side) — the protocol is implemented and hardware-verified on the Nucleo side (tested against a Mac Python script over the ST-Link virtual COM port), ahead of the ROS 2-side bridge node. See [System Architecture](#system-architecture) for the full breakdown.
 
 ## Project Overview
 
@@ -58,8 +58,8 @@ https://github.com/user-attachments/assets/f964e577-ef93-403b-8885-005ee88034cf
 | F4 | Forward-positive per-wheel sign convention, verified on hardware | ✅ Complete |
 | F5 | Disarm-at-boot safety layer (`motors_arm()` gate, duty-cycle ceiling), hardware-verified with the debugger | ✅ Complete |
 | F6 | First powered drive — all four wheels under battery, all four encoders confirmed live | ✅ Complete |
-| F7 | Serial protocol over USART2, tested against a Mac Python script | ⏳ Planned |
-| F8 | Command watchdog | ⏳ Planned |
+| F7 | Serial protocol over USART2, tested against a Mac Python script | ✅ Complete |
+| F8 | Command watchdog | ✅ Complete |
 | F9 | Closed-loop PID velocity control | ⏳ Planned |
 
 ### ROS 2 (Raspberry Pi 5, `ros2_ws/`)
@@ -83,7 +83,7 @@ https://github.com/user-attachments/assets/f964e577-ef93-403b-8885-005ee88034cf
 There is **no physical e-stop button** on this robot — that hardware was deliberately dropped in favor of a layered electrical/firmware approach instead:
 
 1. **Physical kill — XT60 battery disconnect.** Unconditional, always available: pull the connector and every driver loses power.
-2. **Automatic kill — firmware command watchdog** *(planned)*. If the serial link to the Raspberry Pi goes quiet, the Nucleo will disarm itself.
+2. **Automatic kill — firmware command watchdog.** If the command stream over the serial link goes quiet for 500 ms, the Nucleo disarms itself: PWM zeroes and the command targets clear. Arming is explicit and latching — only an `E,1` command arms the board (`E,0` disarms it), so a flickering link can't silently re-arm a moving robot. `S,ARMED` / `S,DISARMED` / `S,TIMEOUT` status lines report the state, and the green LD2 LED is the armed indicator. This layer is implemented and hardware-verified over USB today.
 3. **Deliberate kill — explicit disarm.** The board boots disarmed: all four BTS7960 enable pins are held low at startup, and an explicit `motors_arm()` call is required before any PWM reaches the drivers. Disarming drops the enable pins **and** zeros the PWM duty registers. A duty-cycle ceiling (300 of 999) also caps speed during development. This layer is implemented and hardware-verified with the debugger today.
 
 ---
@@ -147,9 +147,9 @@ Two tracks can proceed largely in parallel — firmware software work doesn't ne
 
 | Stage | Description | Depends on |
 |-------|-------------|------------|
-| 1 | Serial protocol over USART2, validated against a Mac Python test script | Firmware track — in progress now |
-| 2 | Command watchdog (automatic kill on lost link) | Stage 1 |
-| 3 | Closed-loop PID velocity control | Stage 2 |
+| 1 | Serial protocol over USART2, validated against a Mac Python test script | Firmware track — complete |
+| 2 | Command watchdog (automatic kill on lost link) | Stage 1 — complete |
+| 3 | Closed-loop PID velocity control | Stage 2 — in progress now |
 | 4 | Deck 2 mounting (Raspberry Pi 5, RPLIDAR C1, IMU) | Hardware track — in progress now |
 | 5 | Full cable management and system integration | Stage 4 |
 | 6 | ROS 2 Nucleo serial-bridge node | Stages 1 and 5 |
@@ -259,7 +259,7 @@ Wheel naming: **FL** (front-left), **FR** (front-right), **RL** (rear-left), **R
 
 The project splits into two independently-running parts that will talk to each other over a serial link:
 
-- **`firmware/`** — runs on the STM32 Nucleo-F446RE. Handles the real-time layer: 8-channel PWM generation for all four motors, quadrature encoder reading and velocity computation for all four wheels, and the disarm-at-boot safety gate. Once Phase F7 lands, it will also own the USART2 serial link to the Raspberry Pi.
+- **`firmware/`** — runs on the STM32 Nucleo-F446RE. Handles the real-time layer: 8-channel PWM generation for all four motors, quadrature encoder reading and velocity computation for all four wheels, the disarm-at-boot safety gate, and — as of Phase F7 — the USART2 serial link to the Raspberry Pi (newline-framed ASCII: `C,fl,fr,rl,rr` velocity commands in rad/s, `V,...` telemetry streamed at 50 Hz, `A,...` acknowledgements), with the Phase F8 command watchdog layered on top. Host-side test tooling (`serial_monitor.py`, `serial_console.py`) lives in `firmware/stm32/nucleo_f446re/tools/`.
 - **`ros2_ws/`** — a ROS 2 Jazzy colcon workspace that runs on the Raspberry Pi 5. Currently holds four packages:
   - `mecanum_bringup` — launch files and configuration, including the headless Gazebo Harmonic simulation bring-up.
   - `mecanum_description` — the robot's URDF, built from measurements taken off the physical robot. `base_link` sits at ground level, at the centroid of the 200×200 mm wheel-contact square. `display.launch.py` brings up `robot_state_publisher` and `joint_state_publisher` for visualizing the model.
