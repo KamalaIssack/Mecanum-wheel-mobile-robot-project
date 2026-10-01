@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,6 +46,14 @@
  * runaway command crawls instead of bolting. Raised deliberately once closed
  * loop is trusted. */
 #define DUTY_CEILING 300
+
+/* Open-loop feedforward gain: ~41.9 rad/s (400 RPM no-load) maps to the 999
+ * full-duty count, so 999 / 41.89 = 23.85. A first guess the PID corrects. */
+#define DUTY_PER_RAD_S 23.85f
+
+/* Largest accepted wheel command: the motor's no-load top speed. Anything
+ * beyond is a malformed command and is rejected, not clamped. */
+#define MAX_CMD_RAD_S 42.0f
 
 /* Per-wheel forward-drive sign, order {FL, FR, RL, RR}.
  * Left wheels mount mirror-imaged to the right, so their encoders count the
@@ -122,9 +131,10 @@ volatile uint8_t  rx_ring[RX_RING_SIZE];
 volatile uint16_t rx_head = 0;
 volatile uint16_t rx_tail = 0;
 
-/* Commanded wheel velocities in rad/s, order FL FR RL RR. Populated by a valid
- * C,... line. Not wired to motors yet: motion stays gated by the disarm state,
- * and the command watchdog is Step 5. */
+/* Commanded wheel velocities in rad/s, order FL FR RL RR. Written only by a
+ * validated C,... line (atomically, see parse_command) and cleared on disarm.
+ * Read by TIM6, which maps them to PWM via apply_open_loop(). */
+
 volatile float target_fl = 0.0f;
 volatile float target_fr = 0.0f;
 volatile float target_rl = 0.0f;
@@ -190,7 +200,7 @@ void motors_arm(void);
 void process_rx(void);
 static void parse_enable(const char *s);
 static void parse_command(const char *s);
-
+void apply_open_loop(void);
 
 /* USER CODE END PFP */
 
@@ -821,6 +831,9 @@ static void MX_GPIO_Init(void)
  * would resume that speed the instant something re-armed. */
 void motors_disarm(void)
 {
+
+	motors_armed = 0;
+
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
     __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0);
@@ -841,7 +854,7 @@ void motors_disarm(void)
     target_rl = 0.0f;
     target_rr = 0.0f;
 
-    motors_armed = 0;
+
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);   /* LED off */
 }
 
@@ -904,6 +917,26 @@ void mecanum_drive(int16_t vx, int16_t vy, int16_t omega)
     motor_set(&htim4, TIM_CHANNEL_3, TIM_CHANNEL_4, GPIOC, M4_REN_Pin, M4_LEN_Pin, rr);
 }
 
+
+/* Open-loop feedforward: commanded wheel velocity (rad/s) -> signed duty per
+ * wheel. motor_set() owns the arm gate and the DUTY_CEILING clamp, so neither
+ * is duplicated here. Targets are validated to |v| <= MAX_CMD_RAD_S at parse
+ * time, so the int16_t conversion is always in range. Channel mapping matches
+ * mecanum_drive(): M1=FL, M2=FR on TIM3; M3=RL, M4=RR on TIM4. */
+void apply_open_loop(void)
+{
+    int16_t d_fl = (int16_t)(target_fl * DUTY_PER_RAD_S);
+    int16_t d_fr = (int16_t)(target_fr * DUTY_PER_RAD_S);
+    int16_t d_rl = (int16_t)(target_rl * DUTY_PER_RAD_S);
+    int16_t d_rr = (int16_t)(target_rr * DUTY_PER_RAD_S);
+
+    motor_set(&htim3, TIM_CHANNEL_1, TIM_CHANNEL_2, GPIOC, M1_REN_Pin, M1_LEN_Pin, d_fl);
+    motor_set(&htim3, TIM_CHANNEL_3, TIM_CHANNEL_4, GPIOC, M2_REN_Pin, M2_LEN_Pin, d_fr);
+    motor_set(&htim4, TIM_CHANNEL_1, TIM_CHANNEL_2, GPIOC, M3_REN_Pin, M3_LEN_Pin, d_rl);
+    motor_set(&htim4, TIM_CHANNEL_3, TIM_CHANNEL_4, GPIOC, M4_REN_Pin, M4_LEN_Pin, d_rr);
+}
+
+
 /* Reads the live count out of each encoder timer's CNT register.
  * __HAL_TIM_GET_COUNTER just peeks the current value - it does not
  * reset anything. Updates the four global enc_* variables so the
@@ -957,6 +990,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             motors_disarm();
             status_event = STATUS_TIMEOUT;
         }
+
+        /* Runs after the watchdog on purpose: if it disarmed this tick,
+         * motor_set() already sees motors_armed == 0 and writes zero. */
+        apply_open_loop();
+
     }
 }
 
@@ -1017,13 +1055,28 @@ static void parse_command(const char *s)
         }
     }
 
+
+
+    /* Reject the whole command if any value is non-finite or beyond what the
+     * motor can physically do. A rejected command does not feed the watchdog,
+     * so a sender streaming garbage cannot keep the robot armed. */
+    for (int i = 0; i < 4; i++)
+    {
+        if (!isfinite(v[i]) || fabsf(v[i]) > MAX_CMD_RAD_S)
+            return;
+    }
+
+    /* TIM6 reads these targets, so publish all four plus the watchdog stamp
+     * with interrupts masked: the ISR sees all-old or all-new, never a mix.
+     * Restore PRIMASK rather than force-enable, so this is safe to nest. */
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
     target_fl = v[0];
     target_fr = v[1];
     target_rl = v[2];
     target_rr = v[3];
-
-
-    last_cmd_ms = HAL_GetTick();   /* a valid command proves the link alive */
+    last_cmd_ms = HAL_GetTick();
+    __set_PRIMASK(primask);
 
 
     char buf[64];
