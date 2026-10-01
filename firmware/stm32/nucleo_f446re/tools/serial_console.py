@@ -3,7 +3,7 @@
 import sys, glob, threading, time, serial
 
 BAUD = 115200
-HEARTBEAT_S = 0.2
+HEARTBEAT_S = 0.1
 
 state = {"cmd": None, "beat": False}
 lock = threading.Lock()

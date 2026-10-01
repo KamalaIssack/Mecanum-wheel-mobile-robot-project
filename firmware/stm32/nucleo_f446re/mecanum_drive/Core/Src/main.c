@@ -146,9 +146,9 @@ volatile float target_rr = 0.0f;
 volatile uint32_t last_cmd_ms = 0;
 
 /* If armed and no valid C,... arrives within this many ms, the watchdog
- * disarms. 500 ms: immune to normal jitter, stops within half a second of a
- * real disconnect. Tighten once the Pi's command rate is known. */
-#define CMD_TIMEOUT_MS 500u
+ * disarms. 300 ms: a dead link stops the wheels in about a third of a
+ * second. The host must command faster than this (console heartbeat 100 ms). */
+#define CMD_TIMEOUT_MS 300u
 
 /* State-change event to emit from the main loop (never transmit from an ISR).
  * 0 = nothing pending. */
