@@ -55,6 +55,13 @@
  * beyond is a malformed command and is rejected, not clamped. */
 #define MAX_CMD_RAD_S 42.0f
 
+
+/* Largest gain the K command accepts. Covers the tuning sweep with room to
+ * probe the instability edge (around 55 to 80 for FL), and rejects a dropped
+ * decimal point (300 meant as 30.0). Rejected, not clamped, like
+ * MAX_CMD_RAD_S: a clamped typo would still run a gain never intended. */
+#define KP_MAX 80.0f
+
 /* Per-wheel forward-drive sign, order {FL, FR, RL, RR}.
  * Left wheels mount mirror-imaged to the right, so their encoders count the
  * opposite way and read negative when rolled forward. Corrected here in
@@ -133,13 +140,18 @@ volatile uint16_t rx_tail = 0;
 
 /* Commanded wheel velocities in rad/s, order FL FR RL RR. Written only by a
  * validated C,... line (atomically, see parse_command) and cleared on disarm.
- * Read by TIM6, which maps them to PWM via apply_open_loop(). */
+ * Read by TIM6, which maps them to PWM via apply_velocity_control(). */
 
 volatile float target_fl = 0.0f;
 volatile float target_fr = 0.0f;
 volatile float target_rl = 0.0f;
 volatile float target_rr = 0.0f;
 
+/* Proportional gain, duty counts per rad/s of error. Boots at 0 so a fresh
+ * board reproduces the verified open loop until a K command is acknowledged.
+ * No PRIMASK needed, unlike the targets: one aligned 32-bit store is atomic
+ * on the M4. Survives disarm; only reset or a new K command changes it. */
+volatile float kp = 0.0f;
 
 /* Watchdog: ms timestamp of the last valid velocity command. Compared against
  * HAL_GetTick() to detect a dead control link. */
@@ -200,7 +212,9 @@ void motors_arm(void);
 void process_rx(void);
 static void parse_enable(const char *s);
 static void parse_command(const char *s);
-void apply_open_loop(void);
+static int16_t wheel_duty(float target, float measured);
+void apply_velocity_control(void);
+static void parse_gain(const char *s);
 
 /* USER CODE END PFP */
 
@@ -918,24 +932,41 @@ void mecanum_drive(int16_t vx, int16_t vy, int16_t omega)
 }
 
 
-/* Open-loop feedforward: commanded wheel velocity (rad/s) -> signed duty per
- * wheel. motor_set() owns the arm gate and the DUTY_CEILING clamp, so neither
- * is duplicated here. Targets are validated to |v| <= MAX_CMD_RAD_S at parse
- * time, so the int16_t conversion is always in range. Channel mapping matches
- * mecanum_drive(): M1=FL, M2=FR on TIM3; M3=RL, M4=RR on TIM4. */
-void apply_open_loop(void)
+/* Feedforward plus P correction for one wheel. Target, measured speed and
+ * duty must share the forward-positive sign convention (DIR_* on the encoder
+ * side); a flip on any wheel turns the P term into positive feedback.
+ *
+ * Clamps in float BEFORE the int16_t cast: an out-of-range float-to-int
+ * conversion is undefined, and on this target it keeps the low 16 bits, so
+ * 40000.0 becomes -25536, a full reverse that motor_set()'s own clamp cannot
+ * undo. A corrupted encoder delta alone can reach that range. */
+static int16_t wheel_duty(float target, float measured)
 {
-    int16_t d_fl = (int16_t)(target_fl * DUTY_PER_RAD_S);
-    int16_t d_fr = (int16_t)(target_fr * DUTY_PER_RAD_S);
-    int16_t d_rl = (int16_t)(target_rl * DUTY_PER_RAD_S);
-    int16_t d_rr = (int16_t)(target_rr * DUTY_PER_RAD_S);
+    float d = DUTY_PER_RAD_S * target + kp * (target - measured);
+
+    if (d >  (float)DUTY_CEILING) d =  (float)DUTY_CEILING;
+    if (d < -(float)DUTY_CEILING) d = -(float)DUTY_CEILING;
+
+    return (int16_t)d;
+}
+
+/* At kp = 0 this yields exactly the old open-loop duty for every accepted
+ * target, which is what makes the Kp 0 bench run a baseline. With kp > 0 a
+ * zero target actively holds the wheel (brief reverse pulse when stopping);
+ * only disarm freewheels. motor_set() owns the arm gate. Channel mapping
+ * matches mecanum_drive(): M1=FL, M2=FR on TIM3; M3=RL, M4=RR on TIM4. */
+void apply_velocity_control(void)
+{
+    int16_t d_fl = wheel_duty(target_fl, vel_fl);
+    int16_t d_fr = wheel_duty(target_fr, vel_fr);
+    int16_t d_rl = wheel_duty(target_rl, vel_rl);
+    int16_t d_rr = wheel_duty(target_rr, vel_rr);
 
     motor_set(&htim3, TIM_CHANNEL_1, TIM_CHANNEL_2, GPIOC, M1_REN_Pin, M1_LEN_Pin, d_fl);
     motor_set(&htim3, TIM_CHANNEL_3, TIM_CHANNEL_4, GPIOC, M2_REN_Pin, M2_LEN_Pin, d_fr);
     motor_set(&htim4, TIM_CHANNEL_1, TIM_CHANNEL_2, GPIOC, M3_REN_Pin, M3_LEN_Pin, d_rl);
     motor_set(&htim4, TIM_CHANNEL_3, TIM_CHANNEL_4, GPIOC, M4_REN_Pin, M4_LEN_Pin, d_rr);
 }
-
 
 /* Reads the live count out of each encoder timer's CNT register.
  * __HAL_TIM_GET_COUNTER just peeks the current value - it does not
@@ -993,7 +1024,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
         /* Runs after the watchdog on purpose: if it disarmed this tick,
          * motor_set() already sees motors_armed == 0 and writes zero. */
-        apply_open_loop();
+        apply_velocity_control();
 
     }
 }
@@ -1098,6 +1129,36 @@ static void parse_enable(const char *s)
 
 
 
+/* "K,<kp>" sets the gain and replies "A,K,<kp>". Accepted only while
+ * disarmed, so a gain change never steps the duty under a spinning wheel or
+ * mixes two gains in one log. No race between the check and the store: only
+ * the main loop can arm; the ISR can only disarm. Trailing characters are
+ * rejected because strtof would read "K,3O" as 3. Rejections are silent; the
+ * host detects the missing ack. */
+static void parse_gain(const char *s)
+{
+    if (s[1] != ',')
+        return;
+    if (motors_armed)
+        return;
+
+    const char *p = s + 2;
+    char *end;
+    float v = strtof(p, &end);
+
+    if (end == p || *end != '\0')
+        return;
+    if (!isfinite(v) || v < 0.0f || v > KP_MAX)
+        return;
+
+    kp = v;
+
+    char buf[24];
+    int n = snprintf(buf, sizeof(buf), "A,K,%.2f\n", v);
+    if (n > 0)
+        HAL_UART_Transmit(&huart2, (uint8_t *)buf, (uint16_t)n, HAL_MAX_DELAY);
+}
+
 /* Drain the ring, assembling bytes into a line until '\n', then parse it. Runs
  * in the main loop where slow work is safe. line[]/idx are static: one command
  * can arrive spread across several loop iterations. */
@@ -1118,6 +1179,8 @@ void process_rx(void)
             line[idx] = '\0';
             if (line[0] == 'E')
                 parse_enable(line);
+            else if (line[0] == 'K')
+                parse_gain(line);
             else
                 parse_command(line);
             idx = 0;
