@@ -137,18 +137,18 @@ Kp.
 
 ### Braking at Kp 40
 
-![no motor power](plots/no_motor_power.png)
-
 At the end of the hold, the target drops from 4 to 0 rad/s while the wheel
 is still running at roughly that speed, so the instantaneous error is about
 3.8 rad/s. At Kp 40 that pushes duty to roughly -150 (reverse), well past
 zero. FL reversed by 2 counts and rang before settling. RL also reversed by
-2 counts, and the stop felt hard (by ear). FR reversed by 1 count. RR showed
-a clean stop with no reversal. At Kp 40 the spin also sounded rougher than
-at lower gains: each one-count flip in the quantized measurement swings duty
-by about 13 counts (40 * 0.335), which is audible. This suggests a gentler
-Kp than 40 for day-to-day use, and that ramped (rather than stepped) velocity
-commands are worth considering for a later piece.
+2 counts, and the stop felt hard (felt and heard at the bench, not
+measured). FR reversed by 1 count. RR showed a clean stop with no reversal.
+At Kp 40 the spin also sounded rougher than at lower gains: each one-count
+flip in the quantized measurement swings duty by about 13 counts (40 *
+0.335), which is audible. This suggests a gentler Kp than 40 for day-to-day
+use, and that ramped (rather than stepped) velocity commands are worth
+considering for a later piece. The stops are visible at about t = 3 s in the
+sweep plots above (for example the Kp 40 trace in `plots/sweep_fl.png`).
 
 ### `plots/direction_rl_rr.png`
 
@@ -172,10 +172,14 @@ direction are confounded here.
 
 ### `plots/no_motor_power.png`
 
-This plot overlays a run made with the battery disconnected (motor duty
-commanded but no current to the motor) against a normal powered FL Kp 0
-run. See "no-motion in the no-power runs" in Challenges below for what this
-run actually is and how it is being handled.
+![no motor power](plots/no_motor_power.png)
+
+This plot overlays one of the runs made by mistake with the XT60 unplugged
+(`dry_fl_kp0_nobatt.csv`: duty commanded, but no motor power) against a
+normal powered FL Kp 0 run. The unpowered trace stays at exactly 0 for the
+whole step, yet the logger finished normally and reported the run as
+written. That gap is what the logger's planned no-motion check addresses;
+see the XT60 item under Challenges below.
 
 ## Challenges and how they were handled
 
@@ -190,15 +194,16 @@ run actually is and how it is being handled.
   will be committed separately after it has been verified on the bench.
 - **Intermittent missing "S,DISARMED" reply.** On 4 of about 25 runs, the
   logger did not see the expected disarm acknowledgment from the board.
-  Every case was fixed by simply rerunning. Suspected cause: the first bytes
-  sent after opening the serial port were lost before the board's UART was
-  ready. A settle delay plus a single retry of the `E,0` command have been
-  written, pending verification on the bench.
+  Every case was fixed by simply rerunning. Suspected cause: the first
+  command, written immediately after the Mac opened the serial port, was
+  lost between macOS and the ST-Link virtual COM port bridge; the board
+  itself was running throughout and answered the rerun normally. A settle
+  delay plus a single retry of the `E,0` command have been written, pending
+  verification on the bench.
 - **First version of the plotter mis-reported backward runs and treated
-  one-count bumps as overshoot.** This was fixed in commit 4969c64 before
-  this bench session's plots were generated; the 8 PNGs in the source data
-  folder from the older plotter were not copied into this bench folder for
-  that reason.
+  one-count bumps as overshoot.** This was fixed in commit 4969c64. The PNGs
+  drawn on the day by the older plotter were not copied here; every plot in
+  this folder was regenerated from the CSVs with the fixed plotter.
 - **Watchdog kill test judged by eye only.** The 300 ms stop was not logged;
   "well under a second" is a qualitative, by-eye observation, not a
   measurement.
@@ -212,7 +217,8 @@ run actually is and how it is being handled.
 | `warmup_fl_kp0_hold8.csv`, `cold_fl_kp0.csv`, `early_fl_kp0_warm.csv` | FL cold-start sequence: first cold run, 8 s warm-up, and an early-warm follow-up, used for the warm-up comparison plot. |
 | `warmup_rl_dir.csv` | Warm-up run preceding the RL/RR direction tests. |
 | `dir_<rl\|rr>_<fwd\|back>.csv` | Forward/backward runs at Kp 0 for RL and RR. |
-| `dry_*_nobatt.csv`, `dry_usb_fl_kp0.csv` | Runs made with the battery disconnected (motor unpowered); see Challenges. |
+| `dry_*_nobatt.csv` | Three runs made by mistake with the XT60 unplugged; the logger reported them as successful. See Challenges. |
+| `dry_usb_fl_kp0.csv` | Deliberate USB-only handshake test before the battery was connected (K ack, arm, heartbeat and disarm with no motor power); zeros are expected. |
 
 ## Conclusion and next step
 
