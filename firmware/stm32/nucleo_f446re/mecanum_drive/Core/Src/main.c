@@ -62,6 +62,18 @@
  * MAX_CMD_RAD_S: a clamped typo would still run a gain never intended. */
 #define KP_MAX 80.0f
 
+/* Largest integral gain the I command accepts, duty counts per (rad/s x s).
+ * Twice the top of the tuning sweep (Ki 200), and rejects a dropped decimal
+ * point (1000 meant as 100.0). Rejected, not clamped, like KP_MAX. */
+#define KI_MAX 400.0f
+
+/* Anti-windup clamp on each wheel's integral term, in duty counts. Covers
+ * every legitimate need with margin (worst case about 42: FR at low speed,
+ * cold, low battery; FR needs about -30 at 12 rad/s, hence symmetric), while
+ * a wheel that cannot reach its target can add at most 60 counts of wound-up
+ * duty instead of hundreds. */
+#define I_LIMIT 60.0f
+
 /* Per-wheel forward-drive sign, order {FL, FR, RL, RR}.
  * Left wheels mount mirror-imaged to the right, so their encoders count the
  * opposite way and read negative when rolled forward. Corrected here in
@@ -153,6 +165,19 @@ volatile float target_rr = 0.0f;
  * on the M4. Survives disarm; only reset or a new K command changes it. */
 volatile float kp = 0.0f;
 
+/* Integral gain. Boots at 0, and at ki = 0 the integrals stay at 0, so a
+ * fresh board runs exactly the P law of 3c0b9ff. Same rules as kp: changed
+ * only while disarmed, survives disarm, atomic 32-bit store. */
+volatile float ki = 0.0f;
+
+/* Per-wheel integral term in duty counts: the controller's only memory.
+ * Written by TIM6 (wheel_duty) and cleared by motors_disarm(); read by the
+ * main loop for the D,... line. */
+volatile float integ_fl = 0.0f;
+volatile float integ_fr = 0.0f;
+volatile float integ_rl = 0.0f;
+volatile float integ_rr = 0.0f;
+
 /* Watchdog: ms timestamp of the last valid velocity command. Compared against
  * HAL_GetTick() to detect a dead control link. */
 volatile uint32_t last_cmd_ms = 0;
@@ -212,7 +237,7 @@ void motors_arm(void);
 void process_rx(void);
 static void parse_enable(const char *s);
 static void parse_command(const char *s);
-static int16_t wheel_duty(float target, float measured);
+static int16_t wheel_duty(float target, float measured, volatile float *integ);
 void apply_velocity_control(void);
 static void parse_gain(const char *s);
 
@@ -310,11 +335,25 @@ int main(void)
       float fr = vel_fr;
       float rl = vel_rl;
       float rr = vel_rr;
+      float i_fl = integ_fl;
+      float i_fr = integ_fr;
+      float i_rl = integ_rl;
+      float i_rr = integ_rr;
 
       char buf[64];
       int n = snprintf(buf, sizeof(buf),
                        "V,%+7.2f,%+7.2f,%+7.2f,%+7.2f\n",
                        fl, fr, rl, rr);
+      if (n > 0)
+      {
+        HAL_UART_Transmit(&huart2, (uint8_t *)buf, (uint16_t)n, HAL_MAX_DELAY);
+      }
+
+      /* Integrals on their own line so V keeps exactly 5 fields and existing
+       * host tools are unaffected. V plus D use about 30% of the link. */
+      n = snprintf(buf, sizeof(buf),
+                   "D,%+7.2f,%+7.2f,%+7.2f,%+7.2f\n",
+                   i_fl, i_fr, i_rl, i_rr);
       if (n > 0)
       {
         HAL_UART_Transmit(&huart2, (uint8_t *)buf, (uint16_t)n, HAL_MAX_DELAY);
@@ -867,6 +906,13 @@ void motors_disarm(void)
     target_fr = 0.0f;
     target_rl = 0.0f;
     target_rr = 0.0f;
+    /* Safe against a concurrent TIM6 tick: motors_armed is already 0, so the
+     * ISR clears these too. This clear is what makes every arm start clean,
+     * since motors_arm() may set armed again before TIM6 next runs. */
+    integ_fl = 0.0f;
+    integ_fr = 0.0f;
+    integ_rl = 0.0f;
+    integ_rr = 0.0f;
 
 
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);   /* LED off */
@@ -932,17 +978,41 @@ void mecanum_drive(int16_t vx, int16_t vy, int16_t omega)
 }
 
 
-/* Feedforward plus P correction for one wheel. Target, measured speed and
- * duty must share the forward-positive sign convention (DIR_* on the encoder
- * side); a flip on any wheel turns the P term into positive feedback.
+/* Feedforward plus P plus I for one wheel. Target, measured speed and duty
+ * must share the forward-positive sign convention (DIR_* on the encoder
+ * side); a flip on any wheel turns the feedback positive.
  *
  * Clamps in float BEFORE the int16_t cast: an out-of-range float-to-int
  * conversion is undefined, and on this target it keeps the low 16 bits, so
  * 40000.0 becomes -25536, a full reverse that motor_set()'s own clamp cannot
  * undo. A corrupted encoder delta alone can reach that range. */
-static int16_t wheel_duty(float target, float measured)
+static int16_t wheel_duty(float target, float measured, volatile float *integ)
 {
-    float d = DUTY_PER_RAD_S * target + kp * (target - measured);
+    float e = target - measured;
+
+    /* The controller runs every tick, armed or not: P is stateless, but the
+     * integral would wind up against a wheel that cannot move. A zero target
+     * means stop; without this reset the integral holds its last value on a
+     * stopped wheel (standing current, sitting just under breakaway), while
+     * P still does the braking. Zero is exact here: never computed, only
+     * parsed or cleared. A reversal is deliberately not a reset: its large
+     * error flips the integral's sign within two ticks. */
+    if (!motors_armed || target == 0.0f)
+    {
+        *integ = 0.0f;
+    }
+    else
+    {
+        /* Stored in duty counts (Ki x e x dt), and the stored value itself is
+         * clamped: limiting only its contribution would let a hidden value
+         * keep growing and still lurch the wheel while it unwound. */
+        float i = *integ + ki * e * TICK_SECONDS;
+        if (i >  I_LIMIT) i =  I_LIMIT;
+        if (i < -I_LIMIT) i = -I_LIMIT;
+        *integ = i;
+    }
+
+    float d = DUTY_PER_RAD_S * target + kp * e + *integ;
 
     if (d >  (float)DUTY_CEILING) d =  (float)DUTY_CEILING;
     if (d < -(float)DUTY_CEILING) d = -(float)DUTY_CEILING;
@@ -950,17 +1020,18 @@ static int16_t wheel_duty(float target, float measured)
     return (int16_t)d;
 }
 
-/* At kp = 0 this yields exactly the old open-loop duty for every accepted
- * target, which is what makes the Kp 0 bench run a baseline. With kp > 0 a
- * zero target actively holds the wheel (brief reverse pulse when stopping);
- * only disarm freewheels. motor_set() owns the arm gate. Channel mapping
- * matches mecanum_drive(): M1=FL, M2=FR on TIM3; M3=RL, M4=RR on TIM4. */
+/* At kp = ki = 0 this yields exactly the open-loop duty; at ki = 0 exactly
+ * the P law of 3c0b9ff, which is what makes those bench runs baselines. With
+ * kp > 0 a zero target actively holds the wheel (brief reverse pulse when
+ * stopping); only disarm freewheels. motor_set() owns the arm gate. Channel
+ * mapping matches mecanum_drive(): M1=FL, M2=FR on TIM3; M3=RL, M4=RR on
+ * TIM4. Each wheel keeps its own integral: they need different values. */
 void apply_velocity_control(void)
 {
-    int16_t d_fl = wheel_duty(target_fl, vel_fl);
-    int16_t d_fr = wheel_duty(target_fr, vel_fr);
-    int16_t d_rl = wheel_duty(target_rl, vel_rl);
-    int16_t d_rr = wheel_duty(target_rr, vel_rr);
+    int16_t d_fl = wheel_duty(target_fl, vel_fl, &integ_fl);
+    int16_t d_fr = wheel_duty(target_fr, vel_fr, &integ_fr);
+    int16_t d_rl = wheel_duty(target_rl, vel_rl, &integ_rl);
+    int16_t d_rr = wheel_duty(target_rr, vel_rr, &integ_rr);
 
     motor_set(&htim3, TIM_CHANNEL_1, TIM_CHANNEL_2, GPIOC, M1_REN_Pin, M1_LEN_Pin, d_fl);
     motor_set(&htim3, TIM_CHANNEL_3, TIM_CHANNEL_4, GPIOC, M2_REN_Pin, M2_LEN_Pin, d_fr);
@@ -1129,12 +1200,14 @@ static void parse_enable(const char *s)
 
 
 
-/* "K,<kp>" sets the gain and replies "A,K,<kp>". Accepted only while
- * disarmed, so a gain change never steps the duty under a spinning wheel or
- * mixes two gains in one log. No race between the check and the store: only
- * the main loop can arm; the ISR can only disarm. Trailing characters are
- * rejected because strtof would read "K,3O" as 3. Rejections are silent; the
- * host detects the missing ack. */
+/* "K,<kp>" or "I,<ki>" sets that gain and replies "A,K,<kp>" or "A,I,<ki>".
+ * One parser because every rule is shared; only the limit, the variable and
+ * the ack letter come from the tag. Accepted only while disarmed, so a gain
+ * change never steps the duty under a spinning wheel or mixes two gains in
+ * one log. No race between the check and the store: only the main loop can
+ * arm; the ISR can only disarm. Trailing characters are rejected because
+ * strtof would read "K,3O" as 3. Rejections are silent; the host detects the
+ * missing ack. */
 static void parse_gain(const char *s)
 {
     if (s[1] != ',')
@@ -1142,19 +1215,25 @@ static void parse_gain(const char *s)
     if (motors_armed)
         return;
 
+    const char tag = s[0];                       /* 'K' or 'I', see process_rx */
+    const float limit = (tag == 'K') ? KP_MAX : KI_MAX;
+
     const char *p = s + 2;
     char *end;
     float v = strtof(p, &end);
 
     if (end == p || *end != '\0')
         return;
-    if (!isfinite(v) || v < 0.0f || v > KP_MAX)
+    if (!isfinite(v) || v < 0.0f || v > limit)
         return;
 
-    kp = v;
+    if (tag == 'K')
+        kp = v;
+    else
+        ki = v;
 
     char buf[24];
-    int n = snprintf(buf, sizeof(buf), "A,K,%.2f\n", v);
+    int n = snprintf(buf, sizeof(buf), "A,%c,%.2f\n", tag, v);
     if (n > 0)
         HAL_UART_Transmit(&huart2, (uint8_t *)buf, (uint16_t)n, HAL_MAX_DELAY);
 }
@@ -1179,7 +1258,7 @@ void process_rx(void)
             line[idx] = '\0';
             if (line[0] == 'E')
                 parse_enable(line);
-            else if (line[0] == 'K')
+            else if (line[0] == 'K' || line[0] == 'I')
                 parse_gain(line);
             else
                 parse_command(line);
