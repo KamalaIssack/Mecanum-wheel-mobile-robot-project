@@ -6,7 +6,7 @@ Most "autonomous robot" portfolio projects stop at Gazebo. This one doesn't: the
 
 The system splits across two boards by responsibility:
 
-- **STM32 Nucleo-F446RE** — the real-time layer. Deterministic PWM generation, quadrature encoder reading, a hardware-verified serial command interface with a command watchdog, and closed-loop wheel velocity control (per-wheel P control, bench-verified; integral action next), with no OS in the way.
+- **STM32 Nucleo-F446RE**: the real-time layer. Deterministic PWM generation, quadrature encoder reading, a hardware-verified serial command interface with a command watchdog, and closed-loop wheel velocity control (per-wheel PI control: feedforward + P + clamped integral, bench-verified on all four wheels), with no OS in the way.
 - **Raspberry Pi 5** — the perception and autonomy layer, running ROS 2 Jazzy: kinematics, odometry, sensor fusion, SLAM, and Nav2.
 
 The two boards will talk over a serial link (USART2 on the Nucleo side) — the protocol is implemented and hardware-verified on the Nucleo side (tested against a Mac Python script over the ST-Link virtual COM port), ahead of the ROS 2-side bridge node. See [System Architecture](#system-architecture) for the full breakdown.
@@ -61,7 +61,7 @@ https://github.com/user-attachments/assets/f964e577-ef93-403b-8885-005ee88034cf
 | F7 | Serial protocol over USART2, tested against a Mac Python script | ✅ Complete |
 | F8 | Command watchdog | ✅ Complete |
 | F9 | Closed-loop velocity control, piece 2: per-wheel P control with a live `K` gain command, bench-verified on all four wheels ([results](firmware/stm32/nucleo_f446re/bench/2026-10-12_p_control/)) | ✅ Complete |
-| F10 | Integral action (PI) with windup clamp and reset on disarm | ⏳ Planned |
+| F10 | Integral action (PI): `I` gain command, ±60 windup clamp, reset on disarm and at zero target, `D` integral telemetry; Kp 10 / Ki 100 bench-verified on all four wheels ([results](firmware/stm32/nucleo_f446re/bench/2026-10-19_pi_control/)) | ✅ Complete |
 
 ### ROS 2 (Raspberry Pi 5, `ros2_ws/`)
 
@@ -150,7 +150,7 @@ Two tracks can proceed largely in parallel — firmware software work doesn't ne
 |-------|-------------|------------|
 | 1 | Serial protocol over USART2, validated against a Mac Python test script | Firmware track — complete |
 | 2 | Command watchdog (automatic kill on lost link) | Stage 1 — complete |
-| 3 | Closed-loop velocity control: P complete and bench-verified, integral action (PI) next | Stage 2, in progress now |
+| 3 | Closed-loop velocity control: P and PI complete and bench-verified | Stage 2, complete |
 | 4 | Deck 2 mounting (Raspberry Pi 5, RPLIDAR C1, IMU) | Hardware track — in progress now |
 | 5 | Full cable management and system integration | Stage 4 |
 | 6 | ROS 2 Nucleo serial-bridge node | Stages 1 and 5 |
@@ -262,7 +262,7 @@ Wheel naming: **FL** (front-left), **FR** (front-right), **RL** (rear-left), **R
 
 The project splits into two independently-running parts that will talk to each other over a serial link:
 
-- **`firmware/`** — runs on the STM32 Nucleo-F446RE. Handles the real-time layer: 8-channel PWM generation for all four motors, quadrature encoder reading and velocity computation for all four wheels, the disarm-at-boot safety gate, and — as of Phase F7 — the USART2 serial link to the Raspberry Pi (newline-framed ASCII: `C,fl,fr,rl,rr` velocity commands in rad/s, `E,1`/`E,0` arm and disarm, `K,<kp>` proportional gain, `V,...` telemetry streamed at 50 Hz, `A,...` acknowledgements), with the Phase F8 command watchdog layered on top. Host-side tooling lives in `firmware/stm32/nucleo_f446re/tools/`: `serial_monitor.py` and `serial_console.py` for interactive testing, and `step_logger.py` and `plot_step.py` for logging and plotting wheel step responses. Dated bench sessions with raw data, plots and write-ups live in `firmware/stm32/nucleo_f446re/bench/`, starting with the [2026-10-12 P-control sweep](firmware/stm32/nucleo_f446re/bench/2026-10-12_p_control/).
+- **`firmware/`**: runs on the STM32 Nucleo-F446RE. Handles the real-time layer: 8-channel PWM generation for all four motors, quadrature encoder reading and velocity computation for all four wheels, the disarm-at-boot safety gate, and (as of Phase F7) the USART2 serial link to the Raspberry Pi (newline-framed ASCII: `C,fl,fr,rl,rr` velocity commands in rad/s, `E,1`/`E,0` arm and disarm, `K,<kp>` proportional gain, `I,<ki>` integral gain, `V,...` telemetry streamed at 50 Hz, `D,...` integral telemetry sent after each `V` line, `A,...` acknowledgements), with the Phase F8 command watchdog layered on top. Host-side tooling lives in `firmware/stm32/nucleo_f446re/tools/`: `serial_monitor.py` and `serial_console.py` for interactive testing, `step_logger.py` and `plot_step.py` for logging and plotting wheel step responses, and `i_check.py`, a USB-only protocol check that needs no motor power. Dated bench sessions with raw data, plots and write-ups live in `firmware/stm32/nucleo_f446re/bench/`: the [2026-10-12 P-control sweep](firmware/stm32/nucleo_f446re/bench/2026-10-12_p_control/) and the [2026-10-19 PI-control session](firmware/stm32/nucleo_f446re/bench/2026-10-19_pi_control/).
 - **`ros2_ws/`** — a ROS 2 Jazzy colcon workspace that runs on the Raspberry Pi 5. Currently holds four packages:
   - `mecanum_bringup` — launch files and configuration, including the headless Gazebo Harmonic simulation bring-up.
   - `mecanum_description` — the robot's URDF, built from measurements taken off the physical robot. `base_link` sits at ground level, at the centroid of the 200×200 mm wheel-contact square. `display.launch.py` brings up `robot_state_publisher` and `joint_state_publisher` for visualizing the model.
