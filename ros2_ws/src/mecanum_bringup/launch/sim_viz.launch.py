@@ -1,4 +1,5 @@
-"""Starts foxglove_bridge alone, to visualize the running simulation.
+"""
+Starts foxglove_bridge alone, to visualize the running simulation.
 
 Deliberately not bringup.launch.py: that is the real-robot bring-up and also
 starts robot_state_publisher (already running from simulation.launch.py) and

@@ -1,4 +1,5 @@
-"""Starts ros_gz_bridge from the topic map in config/sim_bridge.yaml.
+"""
+Starts ros_gz_bridge from the topic map in config/sim_bridge.yaml.
 
 Kept separate from simulation.launch.py so the gz-transport/ROS 2 boundary
 stays a named component that can be restarted without tearing down the

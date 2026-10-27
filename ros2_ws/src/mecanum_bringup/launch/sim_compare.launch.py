@@ -1,4 +1,7 @@
-"""Path B: runs joint_state_adapter and mecanum_odometry so the project's own
+"""
+Path B: compare the project's own odometry against the plugin's.
+
+Runs joint_state_adapter and mecanum_odometry so the project's own
 forward-kinematics code produces /odom_computed alongside the plugin's bridged
 /odom, for side-by-side validation.
 
@@ -38,4 +41,4 @@ def generate_launch_description():
         ],
     )
 
-    return LaunchDescription([adapter, odometry]) 
+    return LaunchDescription([adapter, odometry])

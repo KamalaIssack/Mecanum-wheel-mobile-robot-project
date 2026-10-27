@@ -1,5 +1,8 @@
-"""Headless Gazebo bring-up: starts the server, publishes the robot
-description, and spawns the model into the world.
+"""
+Headless Gazebo bring-up.
+
+Starts the server, publishes the robot description, and spawns the model into
+the world.
 
 The ros_gz_bridge is intentionally kept in a separate launch file so the
 gz-transport/ROS 2 boundary stays explicit rather than buried here.

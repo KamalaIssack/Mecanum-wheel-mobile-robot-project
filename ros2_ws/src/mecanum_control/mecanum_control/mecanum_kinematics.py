@@ -1,11 +1,7 @@
-import rclpy
-from rclpy.node import Node
-
 from geometry_msgs.msg import Twist
 from mecanum_interfaces.msg import WheelSpeeds
-
-
-
+import rclpy
+from rclpy.node import Node
 
 
 class MecanumKinematics(Node):
@@ -40,7 +36,6 @@ class MecanumKinematics(Node):
 
         self.get_logger().info('mecanum_kinematics node started')
 
-
     def cmd_vel_callback(self, msg):
         # Extract body velocities (REP-103: +x fwd, +y left, +z CCW yaw).
         vx = msg.linear.x
@@ -68,7 +63,6 @@ class MecanumKinematics(Node):
         out.rear_right = w_rr
         self.wheel_pub.publish(out)
 
-
     def _clamp(self, value):
         # Saturate to +/- max_wheel_speed without changing sign.
         if value > self.max_wheel_speed:
@@ -76,8 +70,6 @@ class MecanumKinematics(Node):
         if value < -self.max_wheel_speed:
             return -self.max_wheel_speed
         return value
-
-
 
 
 def main(args=None):
@@ -94,4 +86,3 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-

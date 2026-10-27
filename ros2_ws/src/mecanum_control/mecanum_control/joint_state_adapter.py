@@ -1,5 +1,7 @@
-"""Reshapes Gazebo's sensor_msgs/JointState into mecanum_interfaces/WheelSpeeds
-so mecanum_odometry can run in simulation unchanged.
+"""
+Reshape Gazebo's JointState into mecanum_interfaces/WheelSpeeds.
+
+Lets mecanum_odometry run in simulation unchanged.
 
 Pure structural translation: velocities pass through untouched, so the
 per-wheel signs stay identical to the plugin's. On hardware this role is
@@ -7,11 +9,10 @@ filled by the Nucleo serial bridge; this node is its sim-only sibling and
 pins down the /wheel_speeds contract that bridge must satisfy.
 """
 
+from mecanum_interfaces.msg import WheelSpeeds
 import rclpy
 from rclpy.node import Node
-
 from sensor_msgs.msg import JointState
-from mecanum_interfaces.msg import WheelSpeeds
 
 
 class JointStateAdapter(Node):

@@ -24,9 +24,9 @@ setup(
     },
     entry_points={
         'console_scripts': [
-        'mecanum_kinematics = mecanum_control.mecanum_kinematics:main',
-        'mecanum_odometry = mecanum_control.mecanum_odometry:main',
-        'joint_state_adapter = mecanum_control.joint_state_adapter:main',
+            'mecanum_kinematics = mecanum_control.mecanum_kinematics:main',
+            'mecanum_odometry = mecanum_control.mecanum_odometry:main',
+            'joint_state_adapter = mecanum_control.joint_state_adapter:main',
         ],
     },
 )
