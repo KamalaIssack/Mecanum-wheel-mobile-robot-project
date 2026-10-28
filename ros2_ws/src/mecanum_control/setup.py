@@ -27,6 +27,7 @@ setup(
             'mecanum_kinematics = mecanum_control.mecanum_kinematics:main',
             'mecanum_odometry = mecanum_control.mecanum_odometry:main',
             'joint_state_adapter = mecanum_control.joint_state_adapter:main',
+            'nucleo_bridge = mecanum_control.nucleo_bridge:main',
         ],
     },
 )
