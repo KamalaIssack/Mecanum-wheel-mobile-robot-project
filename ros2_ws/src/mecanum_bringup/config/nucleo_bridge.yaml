@@ -1,0 +1,28 @@
+# nucleo_bridge parameters. The top key is the node name, not the file name.
+# Floats must be written with a decimal point: rclpy rejects an integer for a
+# parameter declared as a float. An undeclared (misspelt) name is ignored
+# silently and leaves the code default in force.
+
+nucleo_bridge:
+  ros__parameters:
+    port: /dev/ttyACM0
+    baud: 115200
+
+    # Locked 2026-10-19 on all four wheels. Firmware limits: Kp 0-80, Ki 0-400.
+    kp: 10.0
+    ki: 100.0
+
+    # Must stay well under the firmware's 300 ms watchdog.
+    heartbeat_period: 0.1
+
+    # Seconds a /wheel_speeds_cmd stays valid before it is replaced by zeros.
+    cmd_timeout: 0.5
+
+    # Seconds without a velocity ack before a warning.
+    ack_timeout: 0.5
+
+    # rad/s^2; x heartbeat_period = 2.0 rad/s per C line.
+    max_accel: 20.0
+
+    # Just under the firmware's 42 rad/s rejection limit.
+    max_wheel_speed: 41.9
