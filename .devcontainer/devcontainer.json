@@ -1,0 +1,18 @@
+{
+  "name": "Mecanum robot: ROS 2 Jazzy + Gazebo Harmonic",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "ubuntu",
+  // foxglove_bridge. Visibility is not settable here: set it Public in the PORTS tab.
+  "forwardPorts": [8765],
+  "portsAttributes": {
+    "8765": {
+      "label": "foxglove_bridge",
+      "onAutoForward": "silent"
+    }
+  },
+  // apt-get update first: the image ships without package lists.
+  // rosdep update again: the image cache belongs to root, not to ubuntu.
+  "postCreateCommand": "sudo apt-get update && rosdep update --rosdistro jazzy && rosdep install --from-paths ros2_ws/src --ignore-src -y --rosdistro jazzy"
+}
