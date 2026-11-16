@@ -1,10 +1,17 @@
 """Unit tests for the hardware-free logic in nucleo_bridge."""
 
+import pathlib
+import re
+
+from ament_index_python.packages import get_package_share_directory
 from mecanum_control.nucleo_bridge import (
+    FIRMWARE_TICK,
     fresh_goal,
+    integrate_angles,
     parse_four,
     parse_status,
     ramp_toward,
+    WHEEL_JOINTS,
 )
 import pytest
 
@@ -89,3 +96,30 @@ def test_ramp_small_change_lands_exactly():
 def test_ramp_clamps_to_max_speed():
     out = ramp_toward([41.0] * 4, [100.0] * 4, max_step=2.0, max_speed=41.9)
     assert out == pytest.approx([41.9] * 4)
+
+
+def test_integrate_angles_is_speed_times_tick_times_lines():
+    angles = [0.0] * 4
+    for _ in range(50):  # one second of V lines
+        angles = integrate_angles(angles, [10.0, -10.0, 0.0, 2.5], FIRMWARE_TICK)
+    assert angles == pytest.approx([10.0, -10.0, 0.0, 2.5])
+
+
+def test_integrate_angles_does_not_wrap():
+    out = integrate_angles([6.0] * 4, [40.0] * 4, FIRMWARE_TICK)
+    assert out == pytest.approx([6.8] * 4)  # past 2*pi, still counting up
+
+
+def test_integrate_angles_leaves_input_unchanged():
+    before = [1.0] * 4
+    integrate_angles(before, [1.0] * 4, FIRMWARE_TICK)
+    assert before == [1.0] * 4
+
+
+def test_wheel_joints_match_urdf():
+    share = pathlib.Path(get_package_share_directory('mecanum_description'))
+    xacro = (share / 'urdf' / 'mecanum_robot.urdf.xacro').read_text()
+    # The macro names each joint ${prefix}_wheel_joint; check both halves.
+    assert '<joint name="${prefix}_wheel_joint"' in xacro
+    prefixes = re.findall(r'<xacro:mecanum_wheel prefix="(\w+)"', xacro)
+    assert tuple(p + '_wheel_joint' for p in prefixes) == WHEEL_JOINTS

@@ -9,8 +9,10 @@ heartbeat is limited by max_accel.
 
 Nucleo to ROS: every V line (measured wheel speeds, 50 Hz) is published on
 /wheel_speeds, the same contract joint_state_adapter fills in simulation, so
-mecanum_odometry runs unchanged on the real robot. The board state from S
-lines is published on /nucleo_status.
+mecanum_odometry runs unchanged on the real robot. The same line is also
+published on /joint_states, with the wheel angle accumulated here, so
+robot_state_publisher can place the four wheel frames. The board state from
+S lines is published on /nucleo_status.
 
 Start-up: newline, E,0, then K and I, each confirmed by its reply, then E,1.
 The node refuses to arm if any reply is missing. Exit: C,0,0,0,0 then E,0.
@@ -24,11 +26,26 @@ import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
+from sensor_msgs.msg import JointState
 import serial
 from std_msgs.msg import String
 
 ZEROS = [0.0, 0.0, 0.0, 0.0]
 BOARD_STATES = ('ARMED', 'DISARMED', 'TIMEOUT')
+
+# Must match the URDF exactly: robot_state_publisher silently ignores a name
+# it does not know. Order is the V line order, FL FR RL RR.
+WHEEL_JOINTS = (
+    'front_left_wheel_joint',
+    'front_right_wheel_joint',
+    'rear_left_wheel_joint',
+    'rear_right_wheel_joint',
+)
+
+# The firmware reports counts x 2*pi / 937.2 / 0.02 per 50 Hz tick, so
+# speed x 0.02 is the exact encoder angle for that tick, whatever the clock
+# or the USB link did. Pi arrival time would add link jitter instead.
+FIRMWARE_TICK = 0.02  # s
 
 
 class BridgeError(RuntimeError):
@@ -78,6 +95,13 @@ def ramp_toward(sent, goal, max_step, max_speed):
         step = max(-max_step, min(max_step, g - s))
         out.append(s + step)
     return out
+
+
+def integrate_angles(angles, velocities, dt):
+    """Return angles advanced by velocities * dt (rad, rad/s, s)."""
+    # Not wrapped to [-pi, pi]: robot_state_publisher accepts any value and
+    # a running total plots better.
+    return [a + v * dt for a, v in zip(angles, velocities)]
 
 
 class NucleoBridge(Node):
@@ -136,6 +160,8 @@ class NucleoBridge(Node):
         self.ack_warned = False
 
         self.pub = self.create_publisher(WheelSpeeds, 'wheel_speeds', 10)
+        self.joint_pub = self.create_publisher(JointState, 'joint_states', 10)
+        self.angles = list(ZEROS)  # wheel angles in rad, WHEEL_JOINTS order
         self.sub = self.create_subscription(
             WheelSpeeds, 'wheel_speeds_cmd', self.on_cmd, 10
         )
@@ -260,13 +286,22 @@ class NucleoBridge(Node):
                 self.on_status(line)
 
     def publish_measured(self, line):
-        """Publish one V line as a WheelSpeeds message on /wheel_speeds."""
+        """Publish one V line on /wheel_speeds and on /joint_states."""
         values = parse_four(line, 'V')
         if values is None:
             return  # garbled; the next line arrives in 20 ms
         out = WheelSpeeds()
         out.front_left, out.front_right, out.rear_left, out.rear_right = values
         self.pub.publish(out)
+
+        self.angles = integrate_angles(self.angles, values, FIRMWARE_TICK)
+        js = JointState()
+        # The board sends no time: stamp with the same Pi clock as /odom.
+        js.header.stamp = self.get_clock().now().to_msg()
+        js.name = list(WHEEL_JOINTS)
+        js.position = list(self.angles)
+        js.velocity = list(values)
+        self.joint_pub.publish(js)
 
     def note_ack(self, line):
         """Restart the ack clock on a velocity ack."""
