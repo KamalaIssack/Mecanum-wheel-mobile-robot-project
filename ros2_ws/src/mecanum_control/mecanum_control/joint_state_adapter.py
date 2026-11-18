@@ -11,6 +11,7 @@ pins down the /wheel_speeds contract that bridge must satisfy.
 
 from mecanum_interfaces.msg import WheelSpeeds
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
@@ -54,14 +55,20 @@ class JointStateAdapter(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = JointStateAdapter()
+    node = None
     try:
+        # Inside the try: a signal during construction must not escape.
+        node = JointStateAdapter()
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        if node is not None:
+            node.destroy_node()
+        # The signal handler has usually shut the context down already;
+        # a second shutdown() raises in Jazzy.
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

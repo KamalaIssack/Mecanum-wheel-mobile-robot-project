@@ -4,6 +4,7 @@ from geometry_msgs.msg import TransformStamped
 from mecanum_interfaces.msg import WheelSpeeds
 from nav_msgs.msg import Odometry
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from tf2_ros import TransformBroadcaster
 
@@ -154,14 +155,20 @@ class MecanumOdometry(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = MecanumOdometry()
+    node = None
     try:
+        # Inside the try: a signal during construction must not escape.
+        node = MecanumOdometry()
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        if node is not None:
+            node.destroy_node()
+        # The signal handler has usually shut the context down already;
+        # a second shutdown() raises in Jazzy.
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
