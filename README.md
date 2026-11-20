@@ -27,7 +27,7 @@ The build follows a two-deck chassis: Deck 1 carries the power distribution laye
 
 **ROS 2 drives the real robot**: wheels up, `/cmd_vel` → `mecanum_kinematics` → `nucleo_bridge` → per-wheel PI on the Nucleo, driving forward, strafe left and rotate CCW. Foxglove shows the robot model placed by odometry from the real encoders, not a simulation.
 
-<!-- VIDEO: upload e4_phone_demo.mp4 here with GitHub's web editor -->
+https://github.com/user-attachments/assets/70f44108-5673-49ba-b073-bdbc5a9b6a03
 
 **First powered drive** — all four wheels driven forward under battery power, wheels off the ground, all four encoders confirmed reading live on the debugger.
 

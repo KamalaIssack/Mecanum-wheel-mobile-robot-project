@@ -194,11 +194,11 @@ the rest of the stack keeps running, so the commands have no effect.
 
 ## Demo video
 
-<!-- VIDEO: upload e4_foxglove_screen.mp4 here with GitHub's web editor -->
-
 Foxglove during the filmed take: the URDF is placed by `/odom`,
 dead-reckoned from the real encoders, so the model drives across the grid
 while the robot sits on its stand.
+
+https://github.com/user-attachments/assets/3aeae32b-9888-4edf-9679-113e11e23771
 
 ## Battery
 
