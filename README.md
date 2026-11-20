@@ -1,15 +1,15 @@
 # Mecanum Wheel Mobile Robot Project
 
-**A four-wheel mecanum-drive robot that drives under its own battery power today, with per-wheel closed-loop velocity control running on all four wheels, and wheel-speed commands coming from ROS 2 on a Raspberry Pi 5 through a bench-verified serial bridge.**
+**A four-wheel mecanum-drive robot that drives under its own battery power today, with per-wheel closed-loop velocity control running on all four wheels, driven end to end by ROS 2 on a Raspberry Pi 5: `/cmd_vel` in, real wheel motion and `/odom` out, through `hardware.launch.py`, verified wheels up.**
 
-Most "autonomous robot" portfolio projects stop at Gazebo. This one doesn't: the physical robot has driven under battery power with wheels off the ground, all four BTS7960-driven motors commanded through a real mecanum mixer, and all four quadrature encoders confirmed reading live on hardware. It now takes wheel-speed commands from ROS 2 on a Raspberry Pi 5 through the `nucleo_bridge` serial-bridge node, bench-verified wheels up. The ROS 2 stack — inverse/forward kinematics, dead-reckoning odometry, and a full Gazebo Harmonic simulation validated to 9 significant figures against the robot's own math — is built and tested in parallel, targeting Nav2 autonomous navigation once the hardware launch file, sensor fusion, and SLAM land.
+Most "autonomous robot" portfolio projects stop at Gazebo. This one doesn't: the physical robot has driven under battery power with wheels off the ground, all four BTS7960-driven motors commanded through a real mecanum mixer, and all four quadrature encoders confirmed reading live on hardware. ROS 2 on a Raspberry Pi 5 now drives it end to end: `hardware.launch.py` takes `/cmd_vel` through `mecanum_kinematics` and the `nucleo_bridge` serial-bridge node to the per-wheel PI loops on the Nucleo, and dead-reckoning odometry from the real encoders comes back on `/odom`, verified wheels up on 2026-11-18. The kinematics and odometry are also validated in a full Gazebo Harmonic simulation, to 9 significant figures against the robot's own math. Next come sensor fusion and SLAM, targeting Nav2 autonomous navigation.
 
 The system splits across two boards by responsibility:
 
 - **STM32 Nucleo-F446RE**: the real-time layer. Deterministic PWM generation, quadrature encoder reading, a hardware-verified serial command interface with a command watchdog, and closed-loop wheel velocity control (per-wheel PI control: feedforward + P + clamped integral, bench-verified on all four wheels), with no OS in the way.
 - **Raspberry Pi 5** — the perception and autonomy layer, running ROS 2 Jazzy: the serial bridge to the Nucleo, kinematics, odometry, sensor fusion, SLAM, and Nav2.
 
-The two boards talk over USB serial (USART2 on the Nucleo side, through the ST-Link virtual COM port) via the `nucleo_bridge` ROS 2 node. The protocol is hardware-verified from both ends: first against the Mac Python tools, then with the ROS 2 node on the Pi ([bench results](ros2_ws/bench/2026-11-01_nucleo_bridge/)). See [System Architecture](#system-architecture) for the full breakdown.
+The two boards talk over USB serial (USART2 on the Nucleo side, through the ST-Link virtual COM port) via the `nucleo_bridge` ROS 2 node. The protocol is hardware-verified from both ends: first against the Mac Python tools, then with the ROS 2 node on the Pi ([bench results](ros2_ws/bench/2026-11-01_nucleo_bridge/)), and then with the full stack under `hardware.launch.py` ([bench results](ros2_ws/bench/2026-11-18_hardware_launch/)). See [System Architecture](#system-architecture) for the full breakdown.
 
 ## Project Overview
 
@@ -24,6 +24,10 @@ The build follows a two-deck chassis: Deck 1 carries the power distribution laye
 ---
 
 ## Demo
+
+**ROS 2 drives the real robot**: wheels up, `/cmd_vel` → `mecanum_kinematics` → `nucleo_bridge` → per-wheel PI on the Nucleo, driving forward, strafe left and rotate CCW. Foxglove shows the robot model placed by odometry from the real encoders, not a simulation.
+
+<!-- VIDEO: upload e4_phone_demo.mp4 here with GitHub's web editor -->
 
 **First powered drive** — all four wheels driven forward under battery power, wheels off the ground, all four encoders confirmed reading live on the debugger.
 
@@ -72,10 +76,11 @@ https://github.com/user-attachments/assets/f964e577-ef93-403b-8885-005ee88034cf
 | R3 | `mecanum_odometry` node — forward kinematics, dead-reckoning odometry, publishes `/odom` and the `odom`→`base_link` TF | ✅ Complete |
 | R4 | Gazebo Harmonic simulation — headless, `ros_gz` bridge; kinematics/odometry validated against the simulator to 9 significant figures; visualized in Foxglove | ✅ Complete |
 | R5 | Nucleo serial-bridge node `nucleo_bridge`: 100 ms heartbeat, stale-command zeroing, ramp limit, confirmed start-up handshake, measured speeds on `/wheel_speeds`, board state on `/nucleo_status`; 25 pytest cases, bench-verified wheels up on 2026-10-30 and 2026-11-01 ([node](ros2_ws/src/mecanum_control/mecanum_control/nucleo_bridge.py) · [tests](ros2_ws/src/mecanum_control/test/test_nucleo_bridge.py) · [config](ros2_ws/src/mecanum_bringup/config/nucleo_bridge.yaml) · [results](ros2_ws/bench/2026-11-01_nucleo_bridge/)) | ✅ Complete |
-| R6 | IMU fusion via `robot_localization` | ⏳ Planned |
-| R7 | RPLIDAR `/scan` integration | ⏳ Planned |
-| R8 | SLAM (`slam_toolbox`) | ⏳ Planned |
-| R9 | Nav2 autonomous navigation | ⏳ Planned |
+| R6 | Hardware bring-up: `nucleo_bridge` publishes `/joint_states`; `hardware.launch.py` runs the five-node stack (`/cmd_vel` → wheels → `/odom`) on the real robot, verified wheels up on 2026-11-18 ([launch file](ros2_ws/src/mecanum_bringup/launch/hardware.launch.py) · [results](ros2_ws/bench/2026-11-18_hardware_launch/)) | ✅ Complete |
+| R7 | IMU fusion via `robot_localization` | ⏳ Planned |
+| R8 | RPLIDAR `/scan` integration | ⏳ Planned |
+| R9 | SLAM (`slam_toolbox`) | ⏳ Planned |
+| R10 | Nav2 autonomous navigation | ⏳ Planned |
 
 ---
 
@@ -155,7 +160,7 @@ Two tracks can proceed largely in parallel — firmware software work doesn't ne
 | 3 | Closed-loop velocity control: P and PI complete and bench-verified | Stage 2, complete |
 | 4 | Deck 2 mounting (Raspberry Pi 5, RPLIDAR C1, IMU) | Hardware track — in progress now |
 | 5 | Full cable management and system integration | Stage 4 |
-| 6 | ROS 2 Nucleo serial-bridge node: complete and bench-verified wheels up | Stages 1 to 3, complete (done on the bench ahead of stage 5) |
+| 6 | ROS 2 Nucleo serial-bridge node and the `hardware.launch.py` hardware launch file: complete, and the end-to-end run (`/cmd_vel` → wheels → `/odom`) bench-verified wheels up | Stages 1 to 3, complete (done on the bench ahead of stage 5) |
 | 7 | IMU fusion via `robot_localization` | Stage 6 |
 | 8 | RPLIDAR `/scan` integration + SLAM (`slam_toolbox`) | Stage 6 |
 | 9 | Nav2 autonomous navigation | Stages 7 and 8 |
@@ -238,7 +243,8 @@ Wheel naming: **FL** (front-left), **FR** (front-right), **RL** (rear-left), **R
 │   ├── bench/                    # Dated bench sessions: raw CSVs, plots, write-ups
 │   └── src/
 │       ├── mecanum_bringup/      # Launch files and config, including headless
-│       │                         # Gazebo Harmonic simulation bring-up; config/
+│       │                         # Gazebo Harmonic simulation bring-up and
+│       │                         # hardware.launch.py for the real robot; config/
 │       │                         # includes nucleo_bridge.yaml
 │       ├── mecanum_description/  # Robot URDF (xacro) + display.launch.py
 │       ├── mecanum_interfaces/   # Custom msg/srv/action definitions
@@ -268,24 +274,26 @@ Wheel naming: **FL** (front-left), **FR** (front-right), **RL** (rear-left), **R
 
 The project splits into two independently-running parts that talk to each other over a USB serial link:
 
-- **`firmware/`**: runs on the STM32 Nucleo-F446RE. Handles the real-time layer: 8-channel PWM generation for all four motors, quadrature encoder reading and velocity computation for all four wheels, the disarm-at-boot safety gate, and (as of Phase F7) the USART2 serial link to the Raspberry Pi (newline-framed ASCII: `C,fl,fr,rl,rr` velocity commands in rad/s, `E,1`/`E,0` arm and disarm, `K,<kp>` proportional gain, `I,<ki>` integral gain, `V,...` telemetry streamed at 50 Hz, `D,...` integral telemetry sent after each `V` line, `A,...` acknowledgements), with the Phase F8 command watchdog layered on top. Host-side tooling lives in `firmware/stm32/nucleo_f446re/tools/`: `serial_monitor.py` and `serial_console.py` for interactive testing, `step_logger.py` and `plot_step.py` for logging and plotting wheel step responses, and `i_check.py`, a USB-only protocol check that needs no motor power. Dated bench sessions with raw data, plots and write-ups live in `firmware/stm32/nucleo_f446re/bench/`: the [2026-10-12 P-control sweep](firmware/stm32/nucleo_f446re/bench/2026-10-12_p_control/) and the [2026-10-19 PI-control session](firmware/stm32/nucleo_f446re/bench/2026-10-19_pi_control/). ROS 2-side bench sessions live in `ros2_ws/bench/`: the [2026-10-30 and 2026-11-01 Nucleo serial-bridge session](ros2_ws/bench/2026-11-01_nucleo_bridge/).
+- **`firmware/`**: runs on the STM32 Nucleo-F446RE. Handles the real-time layer: 8-channel PWM generation for all four motors, quadrature encoder reading and velocity computation for all four wheels, the disarm-at-boot safety gate, and (as of Phase F7) the USART2 serial link to the Raspberry Pi (newline-framed ASCII: `C,fl,fr,rl,rr` velocity commands in rad/s, `E,1`/`E,0` arm and disarm, `K,<kp>` proportional gain, `I,<ki>` integral gain, `V,...` telemetry streamed at 50 Hz, `D,...` integral telemetry sent after each `V` line, `A,...` acknowledgements), with the Phase F8 command watchdog layered on top. Host-side tooling lives in `firmware/stm32/nucleo_f446re/tools/`: `serial_monitor.py` and `serial_console.py` for interactive testing, `step_logger.py` and `plot_step.py` for logging and plotting wheel step responses, and `i_check.py`, a USB-only protocol check that needs no motor power. Dated bench sessions with raw data, plots and write-ups live in `firmware/stm32/nucleo_f446re/bench/`: the [2026-10-12 P-control sweep](firmware/stm32/nucleo_f446re/bench/2026-10-12_p_control/) and the [2026-10-19 PI-control session](firmware/stm32/nucleo_f446re/bench/2026-10-19_pi_control/). ROS 2-side bench sessions live in `ros2_ws/bench/`: the [2026-10-30 and 2026-11-01 Nucleo serial-bridge session](ros2_ws/bench/2026-11-01_nucleo_bridge/) and the [2026-11-18 hardware launch session](ros2_ws/bench/2026-11-18_hardware_launch/).
 - **`ros2_ws/`** — a ROS 2 Jazzy colcon workspace that runs on the Raspberry Pi 5. Currently holds four packages:
   - `mecanum_bringup` — launch files and configuration, including the headless Gazebo Harmonic simulation bring-up.
   - `mecanum_description` — the robot's URDF, built from measurements taken off the physical robot. `base_link` sits at ground level, at the centroid of the 200×200 mm wheel-contact square. `display.launch.py` brings up `robot_state_publisher` and `joint_state_publisher` for visualizing the model.
   - `mecanum_interfaces` — custom interfaces (`WheelSpeeds.msg`, `ResetOdometry.srv`, `MoveForSeconds.action`) shared between nodes.
-  - `mecanum_control` — the `mecanum_kinematics` node (inverse kinematics, `/cmd_vel` → `/wheel_speeds`) and the `mecanum_odometry` node (forward kinematics, dead-reckoning odometry, `/odom` and the `odom`→`base_link` TF). Both are validated in a headless Gazebo Harmonic simulation via the `ros_gz` bridge, to 9 significant figures against the simulator, and visualized in Foxglove. In simulation, `joint_state_adapter` reshapes Gazebo's joint states into measured wheel speeds on `/wheel_speeds`. On the real robot, the `nucleo_bridge` node owns the Nucleo serial port (`/dev/ttyACM0`, 115200 8N1). It re-sends the latest `/wheel_speeds_cmd` as a `C` line every 100 ms (the heartbeat for the firmware's 300 ms watchdog), replaces a command older than 0.5 s with zeros, limits the change to 2.0 rad/s per line (20 rad/s²), and clamps speeds to 41.9 rad/s, just under the firmware's 42 rad/s limit. It publishes every measured `V` line (50 Hz) on `/wheel_speeds`, the same contract `joint_state_adapter` fills in simulation, so `mecanum_odometry` runs unchanged, and the board state (`ARMED` / `DISARMED` / `TIMEOUT`) on `/nucleo_status` with transient-local durability. Parameters load from `mecanum_bringup/config/nucleo_bridge.yaml`. Still to come: `mecanum_kinematics` publishes on `/wheel_speeds` and the bridge listens on `/wheel_speeds_cmd`, so nothing connects them yet. The hardware launch file that remaps them is the next step; on the bench, the bridge was driven by publishing `/wheel_speeds_cmd` directly with `ros2 topic pub`.
+  - `mecanum_control` — the `mecanum_kinematics` node (inverse kinematics, `/cmd_vel` → `/wheel_speeds`) and the `mecanum_odometry` node (forward kinematics, dead-reckoning odometry, `/odom` and the `odom`→`base_link` TF). Both are validated in a headless Gazebo Harmonic simulation via the `ros_gz` bridge, to 9 significant figures against the simulator, and visualized in Foxglove. In simulation, `joint_state_adapter` reshapes Gazebo's joint states into measured wheel speeds on `/wheel_speeds`. On the real robot, the `nucleo_bridge` node owns the Nucleo serial port (`/dev/ttyACM0`, 115200 8N1). It re-sends the latest `/wheel_speeds_cmd` as a `C` line every 100 ms (the heartbeat for the firmware's 300 ms watchdog), replaces a command older than 0.5 s with zeros, limits the change to 2.0 rad/s per line (20 rad/s²), and clamps speeds to 41.9 rad/s, just under the firmware's 42 rad/s limit. It publishes every measured `V` line (50 Hz) on `/wheel_speeds`, the same contract `joint_state_adapter` fills in simulation, so `mecanum_odometry` runs unchanged, and the board state (`ARMED` / `DISARMED` / `TIMEOUT`) on `/nucleo_status` with transient-local durability. Parameters load from `mecanum_bringup/config/nucleo_bridge.yaml`. The bridge also publishes each `V` line on `/joint_states`, with the wheel angles accumulated from the measured speeds, so `robot_state_publisher` can place the four wheel frames. On the real robot, `mecanum_bringup/launch/hardware.launch.py` starts five nodes: `mecanum_kinematics`, `nucleo_bridge`, `mecanum_odometry`, `robot_state_publisher` and `foxglove_bridge`. The kinematics output is remapped to `/wheel_speeds_cmd` on that node only, so `/wheel_speeds` carries nothing but the bridge's measured speeds. The bridge has `on_exit=Shutdown`, so if it exits the whole launch stops, and it is not respawned, because restarting after a fault must be a human decision. There is no `joint_state_publisher`: the bridge publishes the real `/joint_states`.
 
   `ros2_ws/` has its own `.gitignore` for `build/`, `install/`, and `log/`. An earlier workspace, `mecanum_actions_ws`, is retained only as a ROS 2 fundamentals learning archive — it is not part of the active system.
 
-Data flow on the real robot (the dashed edge is the remap still to come):
+Data flow on the real robot, as started by `hardware.launch.py`:
 
 ```mermaid
 flowchart LR
   subgraph PI["Raspberry Pi 5 · ROS 2 Jazzy"]
     CMD["/cmd_vel"] --> KIN["mecanum_kinematics"]
-    KIN -.->|"/wheel_speeds_cmd (remap in hardware launch file, next)"| BR["nucleo_bridge"]
+    KIN -->|"/wheel_speeds_cmd (remapped in hardware.launch.py)"| BR["nucleo_bridge"]
     BR -->|"/wheel_speeds (measured, 50 Hz)"| ODO["mecanum_odometry"]
     ODO --> OUT["/odom + odom→base_link TF"]
+    BR -->|"/joint_states"| RSP["robot_state_publisher"]
+    RSP --> WTF["wheel TF frames"]
     BR --> ST["/nucleo_status"]
   end
   subgraph MCU["STM32 Nucleo-F446RE"]
@@ -358,6 +366,11 @@ Each motor is controlled via a BTS7960 driver using two PWM channels:
    colcon test && colcon test-result --verbose
    ```
 
+5. **Run the full stack (real hardware):** `hardware.launch.py` starts kinematics, the serial bridge, odometry, `robot_state_publisher` and `foxglove_bridge`, so `/cmd_vel` drives the wheels and `/odom` comes back from the encoders. Keep the robot on its stand, wheels up, for first runs.
+   ```bash
+   ros2 launch mecanum_bringup hardware.launch.py
+   ```
+
 ### Development Workflow
 
 1. Configure peripherals in STM32CubeMX (`.ioc` file)
@@ -382,10 +395,12 @@ Each motor is controlled via a BTS7960 driver using two PWM channels:
 - The system uses 8 PWM channels (2 per motor × 4 motors) across TIM3/TIM4
 - ROS 2 workspace lives in this repo at `ros2_ws/`. The companion repository `mecanum_actions_ws` is now a ROS 2 fundamentals learning archive and no longer holds production packages.
 
-**Known issues** (the full list is in the [R5 bench write-up](ros2_ws/bench/2026-11-01_nucleo_bridge/#challenges-and-how-they-were-handled)):
+**Known issues** (the full lists are in the [R6 bench write-up](ros2_ws/bench/2026-11-18_hardware_launch/#challenges-and-how-they-were-handled) and the [R5 bench write-up](ros2_ws/bench/2026-11-01_nucleo_bridge/#challenges-and-how-they-were-handled)):
 
-- The Nucleo runs on its internal HSI clock, which is about 1.3% fast (visible in the logger row counts). The loop regulates the board's own reading, so a commanded 4 rad/s is really about 4.05 rad/s. Moving to HSE bypass is deliberately parked, not forgotten.
-- The Nucleo is powered only through the Pi's USB cable: when the cable was pulled on 2026-11-01, all of its LEDs went off. Before self-powered running, a decision is needed on keeping the motor drivers safe if that link drops: power the Nucleo from Buck A as well, or confirm the BTS7960 inputs are pulled low when undriven.
+- The Nucleo runs on its internal HSI clock, which is about 1.2 to 1.3% fast (visible in the logger row counts). The loop regulates the board's own reading, so a commanded 4 rad/s is really about 4.05 rad/s. Moving to HSE bypass is deliberately parked, not forgotten.
+- Nucleo powered only through the Pi's USB cable: closed on 2026-11-02. All four wheels passed a wheels-up USB-pull test at 2 rad/s (each stopped as soon as the cable was pulled), so powering the Nucleo from Buck A is optional, not a safety requirement. This was tested at low speed only.
+- Intermittent watchdog trip after arming: in 2 of 9 launches on 2026-11-18, the Nucleo's 300 ms command watchdog fired shortly after arming, and the board stayed disarmed while the rest of the stack kept running. It is fail-safe (motors off, latch holds) and under investigation ([details](ros2_ws/bench/2026-11-18_hardware_launch/#challenges-and-how-they-were-handled)).
+- A one-off crash of the Pi 5's USB host controller when the XT60 was plugged in (`dmesg`: "HC died"). The bridge exited and the launch stopped as designed; a reboot cleared it, and it did not repeat.
 
 For detailed firmware development notes, see [`docs/user-guide/stm32-development-log.md`](docs/user-guide/stm32-development-log.md).
 
