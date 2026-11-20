@@ -1,0 +1,110 @@
+rosbag2_bagfile_information:
+  version: 9
+  storage_identifier: mcap
+  duration:
+    nanoseconds: 10195079491
+  starting_time:
+    nanoseconds_since_epoch: 1795014796676462058
+  message_count: 1122
+  topics_with_message_count:
+    - topic_metadata:
+        name: /odom
+        type: nav_msgs/msg/Odometry
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: unknown
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_3cc97dc7fb7502f8714462c526d369e35b603cfc34d946e3f2eda2766dfec6e0
+      message_count: 510
+    - topic_metadata:
+        name: /wheel_speeds_cmd
+        type: mecanum_interfaces/msg/WheelSpeeds
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: unknown
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_c3c57bd83a574a0a621a7161be958d3d4648f21b422a64c3b775dcd30f2a558d
+      message_count: 48
+    - topic_metadata:
+        name: /wheel_speeds
+        type: mecanum_interfaces/msg/WheelSpeeds
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: unknown
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_c3c57bd83a574a0a621a7161be958d3d4648f21b422a64c3b775dcd30f2a558d
+      message_count: 516
+    - topic_metadata:
+        name: /cmd_vel
+        type: geometry_msgs/msg/Twist
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: unknown
+            depth: 10
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_9c45bf16fe0983d80e3cfe750d6835843d265a9a6c46bd2e609fcddde6fb8d2a
+      message_count: 48
+  compression_format: ""
+  compression_mode: ""
+  relative_file_paths:
+    - watchdog_trip_1813_0.mcap
+  files:
+    - path: watchdog_trip_1813_0.mcap
+      starting_time:
+        nanoseconds_since_epoch: 1795014796676462058
+      duration:
+        nanoseconds: 10195079491
+      message_count: 2244
+  custom_data: ~
+  ros_distro: jazzy
